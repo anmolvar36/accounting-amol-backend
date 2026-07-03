@@ -1,0 +1,605 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model Company {
+  id         Int      @id @default(autoincrement())
+  name       String
+  ownerName  String
+  ownerEmail String   @unique
+  status     CompanyStatus @default(ACTIVE)
+  planId     Int?
+  plan       SubscriptionPlan? @relation(fields: [planId], references: [id])
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  users      User[]
+  products   Product[]
+  invoices   Invoice[]
+  customers  Customer[]
+  logs       AuditLog[]
+  banks      Bank[]
+  employees  Employee[]
+  categories Category[]
+  expenses   Expense[]
+  incomes    Income[]
+  payments   PaymentBook[]
+  vouchers   Voucher[]
+  boms       Bom[]
+  partyTags  PartyTag[]
+  partySetting PartySetting?
+  warehouses Warehouse[]
+  branches   Branch[]
+  offers     Offer[]
+  companySetting CompanySetting?
+  units      Unit[]
+  unitConversions UnitConversion[]
+  loadingSheets LoadingSheet[]
+  attendances   Attendance[]
+  productTags   ProductTag[]
+  commissionTypes CommissionType[]
+}
+
+enum CompanyStatus {
+  ACTIVE
+  TRIAL
+  EXPIRED
+  SUSPENDED
+}
+
+model SubscriptionPlan {
+  id        Int       @id @default(autoincrement())
+  name      String
+  price     Float
+  features  Json
+  companies Company[]
+}
+
+model User {
+  id        Int      @id @default(autoincrement())
+  name      String
+  email     String   @unique
+  password  String
+  role      UserRole @default(STAFF)
+  companyId Int?
+  company   Company? @relation(fields: [companyId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+enum UserRole {
+  SUPERADMIN
+  COMPANY_ADMIN
+  STAFF
+}
+
+model Product {
+  id           Int           @id @default(autoincrement())
+  name         String
+  sku          String
+  barcode      String?
+  mrp          Float         @default(0)
+  price        Float         @default(0)
+  category     String?
+  brand        String?
+  colorVariant String?
+  status          String        @default("Active")
+  stock           Int           @default(0)
+  tax             Float         @default(0)
+  hsnCode         String?
+  purchasePrice   Float         @default(0)
+  wholesalePrice  Float         @default(0)
+  creditSalePrice Float         @default(0)
+  baseUnit        String?
+  purchaseUnit    String?
+  salesUnit       String?
+  lowStockAlert   Int           @default(0)
+  reorderLevel    Int           @default(0)
+  enableBatch     Boolean       @default(false)
+  enableExpiry    Boolean       @default(false)
+  enableImei      Boolean?      @default(false)
+  hasBom          Boolean?      @default(false)
+  qtySlabs        Json?
+  openingStockRate Float?       @default(0)
+  warehouse       String?
+  bomName         String?
+  isMultiLevel    Boolean?      @default(false)
+  bomRecipe       Json?
+  syncOnline      Boolean?      @default(false)
+  onlineProductName String?
+  onlineProductDesc String?     @db.Text
+  onlineSalePrice Float?        @default(0)
+  ecommerceCategory String?
+  productImage    String?       @db.LongText
+  commissionType  String?
+  size            String?
+  colour          String?
+  expiryMonth     String?
+  location        String?
+  hindiName       String?
+  description     String?       @db.Text
+  termsCondition  String?       @db.Text
+  productTags     String?
+  companyId       Int
+  company      Company       @relation(fields: [companyId], references: [id])
+  invoiceItems InvoiceItem[]
+  bomItems     BomItem[]
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  @@unique([sku, companyId])
+}
+
+model Customer {
+  id        Int      @id @default(autoincrement())
+  name      String
+  phone     String?
+  address   String?
+  city      String?
+  gstin     String?
+  mobile    String?
+  partyTags String?
+  balance   Float    @default(0)
+  status    String   @default("Active")
+  type      String   @default("CUSTOMER")
+  dueDays       Int?      @default(7)
+  drugLicense   String?
+  pinCode       String?
+  gstApplicable String?
+  state         String?
+  email         String?
+  partyType     String?
+  otherMobileNo String?
+  partyLimit    Float?    @default(0)
+  interestRate  Float?    @default(0)
+  loyaltyPoints Int?      @default(0)
+  joiningDate   String?
+  wholeParty    Boolean?  @default(false)
+  sezParty      Boolean?  @default(false)
+  focParty      Boolean?  @default(false)
+  companyId Int
+  company   Company  @relation(fields: [companyId], references: [id])
+  invoices  Invoice[]
+  followups Followup[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Followup {
+  id           Int      @id @default(autoincrement())
+  reason       String   @db.Text
+  reminderDate String
+  customerId   Int
+  customer     Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+enum TransactionType {
+  PURCHASE_ORDER
+  PURCHASE
+  PURCHASE_RETURN
+  SALES
+  SALES_RETURN
+  CHALLAN
+  STOCK_TRANSFER
+  QUOTATION
+  ADJUSTMENT
+}
+
+model Invoice {
+  id             Int           @id @default(autoincrement())
+  invoiceNo      String
+  date           DateTime      @default(now())
+  type           TransactionType @default(SALES)
+  subTotal       Float         @default(0)
+  totalDiscount  Float         @default(0)
+  freightCharges Float         @default(0)
+  totalAmount    Float         @default(0)
+  paymentMode    String        @default("Cash")
+  remark         String?
+  status         String        @default("PAID")
+  companyId      Int
+  company        Company       @relation(fields: [companyId], references: [id])
+  customerId     Int?
+  customer       Customer?     @relation(fields: [customerId], references: [id])
+  warehouseId    Int?
+  toWarehouseId  Int?
+  items          InvoiceItem[]
+  loadingSheetItems LoadingSheetItem[]
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+}
+
+model InvoiceItem {
+  id        Int      @id @default(autoincrement())
+  invoiceId Int
+  invoice   Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  productId Int
+  product   Product  @relation(fields: [productId], references: [id])
+  quantity  Int      @default(1)
+  freeQty   Int      @default(0)
+  price     Float    @default(0)
+  discount1 Float    @default(0)
+  discount2 Float    @default(0)
+  imei      String?
+  amount    Float    @default(0)
+}
+
+model AuditLog {
+  id          Int      @id @default(autoincrement())
+  actionType  String
+  details     String
+  referenceId String?
+  userName    String
+  companyId   Int
+  company     Company  @relation(fields: [companyId], references: [id])
+  createdAt   DateTime @default(now())
+}
+
+model Bank {
+  id        Int      @id @default(autoincrement())
+  name      String
+  type      String
+  balance   Float    @default(0)
+  address   String?
+  branch    String?
+  ifsc      String?
+  accountNo String?
+  companyId Int
+  company   Company  @relation(fields: [companyId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Employee {
+  id                         Int      @id @default(autoincrement())
+  name                       String
+  mobile                     String?
+  city                       String?
+  joiningDate                String?
+  designation                String?
+  salary                     Float    @default(0)
+  paidHoliday                Int      @default(0)
+  commission                 Float    @default(0)
+  specialCommission          Float    @default(0)
+  totalSaleCommission        Float    @default(0)
+  commissionOnManufacturing  Float    @default(0)
+  companyId                  Int
+  company                    Company  @relation(fields: [companyId], references: [id])
+  attendances                Attendance[]
+  createdAt                  DateTime @default(now())
+  updatedAt                  DateTime @updatedAt
+}
+
+model Attendance {
+  id          Int      @id @default(autoincrement())
+  date        DateTime
+  status      String   @default("Present")
+  employeeId  Int
+  employee    Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  companyId   Int
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([employeeId, date])
+}
+
+model Category {
+  id               Int      @id @default(autoincrement())
+  name             String
+  purchaseDiscount Float    @default(0)
+  saleDiscount     Float    @default(0)
+  isActive         Boolean  @default(true)
+  companyId        Int
+  company          Company  @relation(fields: [companyId], references: [id])
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}
+
+model Expense {
+  id        Int      @id @default(autoincrement())
+  name      String
+  head      String
+  type      String
+  isActive  Boolean  @default(true)
+  companyId Int
+  company   Company  @relation(fields: [companyId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Income {
+  id        Int      @id @default(autoincrement())
+  name      String
+  head      String?
+  isActive  Boolean  @default(true)
+  companyId Int
+  company   Company  @relation(fields: [companyId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model PaymentBook {
+  id           Int      @id @default(autoincrement())
+  partyName    String
+  mobileNumber String?
+  city         String?
+  isActive     Boolean  @default(true)
+  companyId    Int
+  company      Company  @relation(fields: [companyId], references: [id])
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model Voucher {
+  id        Int      @id @default(autoincrement())
+  voucherId String
+  type      String
+  head      String
+  companyId Int
+  company   Company  @relation(fields: [companyId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Bom {
+  id        Int      @id @default(autoincrement())
+  name      String
+  isActive  Boolean  @default(true)
+  companyId Int
+  company   Company  @relation(fields: [companyId], references: [id])
+  items     BomItem[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model BomItem {
+  id        Int      @id @default(autoincrement())
+  bomId     Int
+  bom       Bom      @relation(fields: [bomId], references: [id], onDelete: Cascade)
+  productId Int
+  product   Product  @relation(fields: [productId], references: [id])
+  quantity  Float    @default(1)
+  unit      String   @default("Units")
+  salePrice Float    @default(0)
+  mrp       Float    @default(0)
+  wholesale Float    @default(0)
+}
+
+model PartyTag {
+  id        Int      @id @default(autoincrement())
+  name      String
+  isActive  Boolean  @default(true)
+  companyId Int
+  company   Company  @relation(fields: [companyId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model ProductTag {
+  id        Int      @id @default(autoincrement())
+  name      String
+  isActive  Boolean  @default(true)
+  companyId Int
+  company   Company  @relation(fields: [companyId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model CommissionType {
+  id        Int      @id @default(autoincrement())
+  name      String
+  isActive  Boolean  @default(true)
+  companyId Int
+  company   Company  @relation(fields: [companyId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model PartySetting {
+  id              Int      @id @default(autoincrement())
+  defaultDueDays  Int      @default(7)
+  showPartyTags   Boolean  @default(true)
+  showDueDate     Boolean  @default(true)
+  extraColumns    Json?
+  companyId       Int      @unique
+  company         Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model Warehouse {
+  id        Int      @id @default(autoincrement())
+  name      String
+  location  String?
+  isActive  Boolean  @default(true)
+  companyId Int
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Branch {
+  id        Int      @id @default(autoincrement())
+  name      String
+  code      String?
+  contact   String?
+  gstin     String?
+  address   String?
+  isActive  Boolean  @default(true)
+  companyId Int
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Offer {
+  id              Int      @id @default(autoincrement())
+  name            String
+  offerType       String
+  productSelection String
+  discountType    String?
+  discountValue   String?
+  buyQty          Int?
+  getQty          Int?
+  startDate       String?
+  endDate         String?
+  schedule        String?
+  offerDescription String?   @db.Text
+  status          String   @default("ACTIVE")
+  minCart         String?  @default("-")
+  target          String?
+  type            String?
+  offerValue      String?
+  scheduleIcon    String?
+  usage           Int      @default(0)
+  priority        String?  @default("P3")
+  companyId       Int
+  company         Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model Unit {
+  id          Int      @id @default(autoincrement())
+  name        String
+  uqc         String
+  value       String?
+  compareTo   String?
+  companyId   Int
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model UnitConversion {
+  id          Int      @id @default(autoincrement())
+  baseUnit    String
+  baseQty     Float
+  targetUnit  String
+  targetQty   Float
+  isActive    Boolean  @default(true)
+  companyId   Int
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model CompanySetting {
+  id                  Int      @id @default(autoincrement())
+  quickProduct        Boolean  @default(false)
+  partyFirst          Boolean  @default(false)
+  showShippingParty   Boolean  @default(false)
+  showCompany         Boolean  @default(false)
+  showProductCode     Boolean  @default(false)
+  showBatchNo         Boolean  @default(false)
+  compulsoryBatchNo   Boolean  @default(false)
+  showGST             Boolean  @default(false)
+  showHSN             Boolean  @default(false)
+  showMRP             Boolean  @default(false)
+  showListPrice       Boolean  @default(false)
+  showPurchasePrice   Boolean  @default(false)
+  showDiscount        Boolean  @default(false)
+  hideTotalDiscount   Boolean  @default(false)
+  hideFreightCharge   Boolean  @default(false)
+  showPriceFirst      Boolean  @default(false)
+  showUnit            Boolean  @default(false)
+  showWarning         Boolean  @default(false)
+  negativeStockLock   Boolean  @default(false)
+  useProductCode      Boolean  @default(false)
+  useBarcode          Boolean  @default(false)
+  usePoints           Boolean  @default(false)
+  
+  whatsapp            Boolean  @default(false)
+  sendWhatsapp        Boolean  @default(false)
+  sendSms             Boolean  @default(false)
+  mergePartyLedger    Boolean  @default(false)
+  partyTypeBoth       Boolean  @default(false)
+  interestOnInvoices  Boolean  @default(false)
+  voucherHead         String?
+  showCustomerChallan Boolean  @default(true)
+  showCustomerInvoice Boolean  @default(false)
+  showPurchaseOrder   Boolean  @default(true)
+  showSalesOrder      Boolean  @default(false)
+  currency            String?
+  whatsappHost        String?
+  
+  lowStockQty         Int      @default(5)
+  languagePreference  String   @default("en")
+  invoiceLayout       String   @default("default")
+  taxDisplayOption    String   @default("EXCLUSIVE")
+  barcodeMode         String   @default("MANUAL")
+  defaultQuantity     Int      @default(1)
+  defaultWarehouseId  Int?
+  defaultTerms        String?  @db.Text
+  remarkSettings      String?  @db.Text
+
+  // Product Master Settings
+  extraColumnsName        String?   @default("")
+  extraColumnsDefault     String?   @default("")
+  defaultCommission       String?   @default("Normal")
+  barcodeHeads            String?   @default("* M")
+  showSubInventory        Boolean   @default(false)
+  showProductCodeField    Boolean   @default(false)
+  showBrandField          Boolean   @default(false)
+  showCategoryField       Boolean   @default(true)
+  showGstApplicableField  Boolean   @default(true)
+  showHsnField            Boolean   @default(true)
+  showCreditSalePrice     Boolean   @default(false)
+  showWholesalePrice      Boolean   @default(false)
+  showSpecialPrice        Boolean   @default(false)
+  showSuperSpecialPrice   Boolean   @default(false)
+  showOpeningStock        Boolean   @default(false)
+  showMinimumQuantity     Boolean   @default(false)
+  showReorderQuantity     Boolean   @default(false)
+  showAutoQuantity        Boolean   @default(false)
+  showMultiLocation       Boolean   @default(false)
+  showUnitSection         Boolean   @default(true)
+  showBarcodeField        Boolean   @default(true)
+  showPurchasePriceCode   Boolean   @default(true)
+  purchasePriceMarkup     Float     @default(0)
+  purchasePriceCodeMap    String?   @default("OABCDEFGHI")
+
+  companyId           Int      @unique
+  company             Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+}
+
+model LoadingSheet {
+  id          Int      @id @default(autoincrement())
+  sheetNo     String
+  date        DateTime @default(now())
+  status      String   @default("GENERATED")
+  companyId   Int
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  items       LoadingSheetItem[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model LoadingSheetItem {
+  id              Int      @id @default(autoincrement())
+  loadingSheetId  Int
+  loadingSheet    LoadingSheet @relation(fields: [loadingSheetId], references: [id], onDelete: Cascade)
+  invoiceId       Int
+  invoice         Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+}
+
+model Currency {
+  id          Int      @id @default(autoincrement())
+  code        String   @unique
+  symbol      String?
+  name        String
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
