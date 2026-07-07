@@ -21,9 +21,17 @@ exports.createEmployee = async (req, res) => {
   const { 
     name, mobile, city, joiningDate, designation, salary, 
     paidHoliday, commission, specialCommission, totalSaleCommission, 
-    commissionOnManufacturing 
+    commissionOnManufacturing, openingBalance, openingBalanceType 
   } = req.body;
   try {
+    let initialBalance = 0;
+    if (openingBalance) {
+      initialBalance = parseFloat(openingBalance);
+      if (openingBalanceType === 'ADVANCE') {
+        initialBalance = -Math.abs(initialBalance);
+      }
+    }
+
     const employee = await prisma.employee.create({
       data: {
         name,
@@ -37,9 +45,24 @@ exports.createEmployee = async (req, res) => {
         specialCommission: parseFloat(specialCommission) || 0,
         totalSaleCommission: parseFloat(totalSaleCommission) || 0,
         commissionOnManufacturing: parseFloat(commissionOnManufacturing) || 0,
+        balance: initialBalance,
         companyId
       }
     });
+
+    if (initialBalance !== 0) {
+      await prisma.employeeTransaction.create({
+        data: {
+          date: new Date(),
+          type: 'OPENING_BALANCE',
+          amount: Math.abs(initialBalance),
+          remark: `Opening Balance (${openingBalanceType || 'DUE'})`,
+          employeeId: employee.id,
+          companyId
+        }
+      });
+    }
+
     res.status(201).json({ success: true, data: employee });
   } catch (error) {
     console.error('Error creating employee:', error);
@@ -51,28 +74,81 @@ exports.createEmployee = async (req, res) => {
 exports.updateEmployee = async (req, res) => {
   const companyId = req.user.companyId;
   const { id } = req.params;
+  const employeeId = parseInt(id, 10);
   const { 
     name, mobile, city, joiningDate, designation, salary, 
     paidHoliday, commission, specialCommission, totalSaleCommission, 
-    commissionOnManufacturing 
+    commissionOnManufacturing, openingBalance, openingBalanceType 
   } = req.body;
+
   try {
-    const employee = await prisma.employee.update({
-      where: { id: parseInt(id, 10), companyId },
-      data: {
-        ...(name && { name }),
-        ...(mobile !== undefined && { mobile }),
-        ...(city !== undefined && { city }),
-        ...(joiningDate !== undefined && { joiningDate }),
-        ...(designation !== undefined && { designation }),
-        ...(salary !== undefined && { salary: parseFloat(salary) }),
-        ...(paidHoliday !== undefined && { paidHoliday: parseInt(paidHoliday, 10) }),
-        ...(commission !== undefined && { commission: parseFloat(commission) }),
-        ...(specialCommission !== undefined && { specialCommission: parseFloat(specialCommission) }),
-        ...(totalSaleCommission !== undefined && { totalSaleCommission: parseFloat(totalSaleCommission) }),
-        ...(commissionOnManufacturing !== undefined && { commissionOnManufacturing: parseFloat(commissionOnManufacturing) })
+    const employee = await prisma.$transaction(async (tx) => {
+      // 1. Update basic details
+      let updatedEmp = await tx.employee.update({
+        where: { id: employeeId, companyId },
+        data: {
+          ...(name && { name }),
+          ...(mobile !== undefined && { mobile }),
+          ...(city !== undefined && { city }),
+          ...(joiningDate !== undefined && { joiningDate }),
+          ...(designation !== undefined && { designation }),
+          ...(salary !== undefined && { salary: parseFloat(salary) }),
+          ...(paidHoliday !== undefined && { paidHoliday: parseInt(paidHoliday, 10) }),
+          ...(commission !== undefined && { commission: parseFloat(commission) }),
+          ...(specialCommission !== undefined && { specialCommission: parseFloat(specialCommission) }),
+          ...(totalSaleCommission !== undefined && { totalSaleCommission: parseFloat(totalSaleCommission) }),
+          ...(commissionOnManufacturing !== undefined && { commissionOnManufacturing: parseFloat(commissionOnManufacturing) })
+        }
+      });
+
+      // 2. Handle Opening Balance logic if provided
+      if (openingBalance !== undefined) {
+        let newInitialBalance = parseFloat(openingBalance) || 0;
+        const newAbsAmount = Math.abs(newInitialBalance);
+        let currentInitialBalance = 0;
+        
+        const existingTx = await tx.employeeTransaction.findFirst({
+           where: { employeeId: employeeId, type: 'OPENING_BALANCE' }
+        });
+
+        if (existingTx) {
+           currentInitialBalance = existingTx.remark.includes('ADVANCE') ? -existingTx.amount : existingTx.amount;
+        }
+
+        const requestedSignedBalance = (openingBalanceType === 'ADVANCE') ? -newAbsAmount : newAbsAmount;
+        const diff = requestedSignedBalance - currentInitialBalance;
+
+        if (diff !== 0) {
+           if (existingTx) {
+             await tx.employeeTransaction.update({
+               where: { id: existingTx.id },
+               data: {
+                 amount: newAbsAmount,
+                 remark: `Opening Balance (${openingBalanceType || 'DUE'})`
+               }
+             });
+           } else if (newAbsAmount > 0) {
+             await tx.employeeTransaction.create({
+               data: {
+                 date: new Date(),
+                 type: 'OPENING_BALANCE',
+                 amount: newAbsAmount,
+                 remark: `Opening Balance (${openingBalanceType || 'DUE'})`,
+                 employeeId: employeeId,
+                 companyId
+               }
+             });
+           }
+
+           updatedEmp = await tx.employee.update({
+             where: { id: employeeId },
+             data: { balance: { increment: diff } }
+           });
+        }
       }
+      return updatedEmp;
     });
+
     res.status(200).json({ success: true, data: employee });
   } catch (error) {
     console.error('Error updating employee:', error);
@@ -118,14 +194,17 @@ exports.getEmployeeTransactions = async (req, res) => {
     let runningBalance = 0;
 
     transactions.forEach(t => {
-      // type: "SALARY" or "PAYMENT"
-      // Salary increases the balance (Company owes the employee) -> Credit
-      // Payment decreases the balance (Company paid the employee) -> Debit
       if (t.type === 'SALARY') {
         runningBalance += t.amount;
-      } else {
+      } else if (t.type === 'PAYMENT') {
         runningBalance -= t.amount;
-        runningBalance -= t.discount;
+        runningBalance -= (t.discount || 0);
+      } else if (t.type === 'OPENING_BALANCE') {
+        if (t.remark && t.remark.includes('ADVANCE')) {
+          runningBalance -= t.amount;
+        } else {
+          runningBalance += t.amount;
+        }
       }
 
       entries.push({

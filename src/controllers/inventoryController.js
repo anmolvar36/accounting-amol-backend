@@ -20,7 +20,8 @@ exports.createTransaction = async (req, res) => {
   const { 
     invoiceNo, date, subTotal, totalDiscount, freightCharges, 
     totalAmount, paymentMode, remark, status, customerId, 
-    warehouseId, toWarehouseId, items 
+    warehouseId, toWarehouseId, tcsAmount,
+    totalGstAmount, totalCgst, totalSgst, totalIgst, items 
   } = req.body;
   const companyId = req.user.companyId;
 
@@ -45,6 +46,11 @@ exports.createTransaction = async (req, res) => {
           totalDiscount,
           freightCharges,
           totalAmount,
+          totalGstAmount: totalGstAmount ? parseFloat(totalGstAmount) : 0,
+          totalCgst: totalCgst ? parseFloat(totalCgst) : 0,
+          totalSgst: totalSgst ? parseFloat(totalSgst) : 0,
+          totalIgst: totalIgst ? parseFloat(totalIgst) : 0,
+          tcsAmount: tcsAmount ? parseFloat(tcsAmount) : 0,
           paymentMode,
           remark,
           status,
@@ -61,7 +67,12 @@ exports.createTransaction = async (req, res) => {
               discount1: item.discount1,
               discount2: item.discount2,
               amount: item.amount,
-              imei: item.imei
+              imei: item.imei,
+              gstRate: item.gstRate ? parseFloat(item.gstRate) : 0,
+              gstAmount: item.gstAmount ? parseFloat(item.gstAmount) : 0,
+              cgst: item.cgst ? parseFloat(item.cgst) : 0,
+              sgst: item.sgst ? parseFloat(item.sgst) : 0,
+              igst: item.igst ? parseFloat(item.igst) : 0
             }))
           }
         },

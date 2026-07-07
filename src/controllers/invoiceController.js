@@ -24,16 +24,20 @@ const generateInvoiceNo = () => {
  */
 exports.createInvoice = async (req, res) => {
   const companyId = req.user.companyId;
-  const { customerId, date, paymentMode, remark, subTotal, totalDiscount, freightCharges, totalAmount, items } = req.body;
+  const { 
+    customerId, date, paymentMode, remark, subTotal, 
+    totalDiscount, freightCharges, totalAmount, 
+    totalGstAmount, totalCgst, totalSgst, totalIgst,
+    tcsAmount,
+    items 
+  } = req.body;
 
   if (!Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ success: false, message: 'Invoice must contain at least one item.' });
   }
 
   try {
-    // Run everything in a transaction to keep data consistent
     const result = await prisma.$transaction(async (tx) => {
-      // Validate customer belongs to the same company
       const customer = await tx.customer.findUnique({
         where: { id: parseInt(customerId, 10) },
         select: { id: true, companyId: true }
@@ -42,7 +46,6 @@ exports.createInvoice = async (req, res) => {
         throw new Error('Invalid customer for this company');
       }
 
-      // Process each line item stock
       for (const item of items) {
         const product = await tx.product.findUnique({
           where: { id: parseInt(item.productId, 10) },
@@ -51,14 +54,12 @@ exports.createInvoice = async (req, res) => {
         if (!product || product.companyId !== companyId) {
           throw new Error(`Product ${item.productId} not found for this company`);
         }
-        // Decrement stock
         await tx.product.update({
           where: { id: product.id },
           data: { stock: { decrement: parseInt(item.quantity) } }
         });
       }
 
-      // Create the invoice record
       const invoice = await tx.invoice.create({
         data: {
           invoiceNo: generateInvoiceNo(),
@@ -67,6 +68,11 @@ exports.createInvoice = async (req, res) => {
           totalDiscount: parseFloat(totalDiscount) || 0,
           freightCharges: parseFloat(freightCharges) || 0,
           totalAmount: parseFloat(totalAmount) || 0,
+          totalGstAmount: parseFloat(totalGstAmount) || 0,
+          totalCgst: parseFloat(totalCgst) || 0,
+          totalSgst: parseFloat(totalSgst) || 0,
+          totalIgst: parseFloat(totalIgst) || 0,
+          tcsAmount: parseFloat(tcsAmount) || 0,
           paymentMode: paymentMode || 'Cash',
           remark: remark || '',
           companyId,
@@ -80,7 +86,12 @@ exports.createInvoice = async (req, res) => {
               discount1: parseFloat(item.discount1) || 0,
               discount2: parseFloat(item.discount2) || 0,
               imei: item.imei || null,
-              amount: parseFloat(item.amount) || 0
+              amount: parseFloat(item.amount) || 0,
+              gstRate: parseFloat(item.gstRate) || 0,
+              gstAmount: parseFloat(item.gstAmount) || 0,
+              cgst: parseFloat(item.cgst) || 0,
+              sgst: parseFloat(item.sgst) || 0,
+              igst: parseFloat(item.igst) || 0
             }))
           }
         },
@@ -89,7 +100,6 @@ exports.createInvoice = async (req, res) => {
         }
       });
 
-      // Create audit log entry
       await tx.auditLog.create({
         data: {
           actionType: 'CREATE_INVOICE',

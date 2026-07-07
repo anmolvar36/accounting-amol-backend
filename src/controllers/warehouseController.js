@@ -6,7 +6,11 @@ exports.getWarehouses = async (req, res) => {
   const companyId = req.user?.companyId;
   try {
     const warehouses = await prisma.warehouse.findMany({
-      where: { companyId }
+      where: { companyId },
+      include: {
+        branch: true,
+        locRef: true
+      }
     });
     res.status(200).json({ success: true, data: warehouses });
   } catch (error) {
@@ -18,14 +22,20 @@ exports.getWarehouses = async (req, res) => {
 // Create a new warehouse
 exports.createWarehouse = async (req, res) => {
   const companyId = req.user?.companyId;
-  const { name, location, isActive } = req.body;
+  const { name, location, branchId, locationId, isActive } = req.body;
   try {
     const warehouse = await prisma.warehouse.create({
       data: {
         name,
         location,
         isActive: isActive !== undefined ? isActive : true,
+        branchId: branchId ? parseInt(branchId, 10) : null,
+        locationId: locationId ? parseInt(locationId, 10) : null,
         companyId
+      },
+      include: {
+        branch: true,
+        locRef: true
       }
     });
     res.status(201).json({ success: true, data: warehouse });
@@ -39,7 +49,7 @@ exports.createWarehouse = async (req, res) => {
 exports.updateWarehouse = async (req, res) => {
   const companyId = req.user?.companyId;
   const { id } = req.params;
-  const { name, location, isActive } = req.body;
+  const { name, location, branchId, locationId, isActive } = req.body;
   try {
     const existing = await prisma.warehouse.findUnique({ where: { id: parseInt(id, 10) } });
     if (!existing || existing.companyId !== companyId) {
@@ -51,7 +61,13 @@ exports.updateWarehouse = async (req, res) => {
       data: {
         ...(name && { name }),
         ...(location !== undefined && { location }),
-        ...(isActive !== undefined && { isActive })
+        isActive: isActive !== undefined ? isActive : existing.isActive,
+        branchId: branchId !== undefined ? (branchId ? parseInt(branchId, 10) : null) : existing.branchId,
+        locationId: locationId !== undefined ? (locationId ? parseInt(locationId, 10) : null) : existing.locationId
+      },
+      include: {
+        branch: true,
+        locRef: true
       }
     });
     res.status(200).json({ success: true, data: warehouse });

@@ -4,13 +4,22 @@ const prisma = new PrismaClient();
 // Get all customers/parties for the tenant
 exports.getCustomers = async (req, res) => {
   const companyId = req.user.companyId;
-  const { type } = req.query;
+  const { type, search } = req.query;
   try {
     const customers = await prisma.customer.findMany({ 
       where: { 
         companyId,
-        ...(type && { type })
-      } 
+        ...(type && { type }),
+        ...(search && search.trim() !== '' && {
+          OR: [
+            { name: { contains: search.trim() } },
+            { mobile: { contains: search.trim() } },
+            { phone: { contains: search.trim() } },
+          ]
+        })
+      },
+      ...(search && { take: 10 }),
+      orderBy: { name: 'asc' }
     });
     res.status(200).json({ success: true, data: customers });
   } catch (error) {

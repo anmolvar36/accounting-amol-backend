@@ -41,12 +41,14 @@ const inventoryRoutes = require('./routes/inventoryRoutes.js');
 const settingRoutes = require('./routes/settingRoutes.js');
 const financialRoutes = require('./routes/financialRoutes.js');
 const branchRoutes = require('./routes/branchRoutes.js');
+const locationRoutes = require('./routes/locationRoutes.js');
 const loadingSheetRoutes = require('./routes/loadingSheetRoutes.js');
 const currencyRoutes = require('./routes/currencyRoutes.js');
 const posRoutes = require('./routes/posRoutes.js');
 const productTagRoutes = require('./routes/productTagRoutes.js');
 const commissionTypeRoutes = require('./routes/commissionTypeRoutes.js');
 const ledgerRoutes = require('./routes/ledgerRoutes.js');
+const gstrRoutes = require('./routes/gstrRoutes.js');
 
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/companies', companyRoutes);
@@ -75,12 +77,14 @@ app.use('/api/v1/inventory', inventoryRoutes);
 app.use('/api/v1/settings', settingRoutes);
 app.use('/api/v1/financial', financialRoutes);
 app.use('/api/v1/branches', branchRoutes);
+app.use('/api/v1/locations', locationRoutes);
 app.use('/api/v1/loading-sheet', loadingSheetRoutes);
 app.use('/api/v1/currencies', currencyRoutes);
 app.use('/api/v1/pos', posRoutes);
 app.use('/api/v1/product-tags', productTagRoutes);
 app.use('/api/v1/commission-types', commissionTypeRoutes);
 app.use('/api/v1/ledger', ledgerRoutes);
+app.use('/api/v1/gstr', gstrRoutes);
 
 // Error Handling Middleware
 app.use((err, req, res, next) => {

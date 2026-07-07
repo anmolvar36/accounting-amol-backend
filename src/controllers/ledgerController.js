@@ -21,15 +21,9 @@ exports.getLedger = async (req, res) => {
       orderBy: { date: 'asc' }
     });
 
-    // 3. Get all payments (Payment In = Credit, Payment Out = Debit)
-    const payments = await prisma.customerPayment.findMany({
-      where: { customerId: parseInt(customerId, 10), companyId },
-      orderBy: { date: 'asc' }
-    });
-
-    // 4. Combine and sort
+    // 3. Build ledger entries from invoices only
     let entries = [];
-    
+
     invoices.forEach(inv => {
       entries.push({
         id: `INV-${inv.id}`,
@@ -37,24 +31,10 @@ exports.getLedger = async (req, res) => {
         type: 'INVOICE',
         date: inv.date,
         voucherNo: inv.invoiceNo,
-        amount: inv.totalAmount, // This is debit
-        paymentIn: 0,
-        discount: 0,
-        remark: 'Sales Invoice'
-      });
-    });
-
-    payments.forEach(pay => {
-      entries.push({
-        id: `PAY-${pay.id}`,
-        rawId: pay.id,
-        type: pay.paymentType === 'IN' ? 'PAYMENT_IN' : 'PAYMENT_OUT',
-        date: pay.date,
-        voucherNo: pay.referenceNo || '-',
-        amount: pay.paymentType === 'OUT' ? pay.amount : 0, // Debit if we pay them
-        paymentIn: pay.paymentType === 'IN' ? pay.amount : 0, // Credit if they pay us
-        discount: pay.discount || 0,
-        remark: pay.remark || (pay.paymentType === 'IN' ? 'Payment Received' : 'Payment Made')
+        amount: inv.totalAmount,   // Debit
+        paymentIn: inv.status === 'PAID' ? inv.totalAmount : 0, // If paid, add payment in
+        discount: inv.totalDiscount || 0,
+        remark: `Sales Invoice`
       });
     });
 
@@ -64,11 +44,9 @@ exports.getLedger = async (req, res) => {
     // Calculate running balance
     let runningBalance = 0;
     entries = entries.map(entry => {
-      // Debit increases balance (what they owe us)
-      // Credit (payment in) decreases balance
-      runningBalance += entry.amount; // Add invoice amount or payment out
-      runningBalance -= entry.paymentIn; // Subtract payment in
-      runningBalance -= entry.discount; // Subtract discount
+      runningBalance += entry.amount;      // Debit (invoice raised)
+      runningBalance -= entry.paymentIn;   // Credit (payment received)
+      runningBalance -= entry.discount;    // Discount
       return {
         ...entry,
         balance: runningBalance
@@ -91,6 +69,7 @@ exports.getLedger = async (req, res) => {
   }
 };
 
+
 exports.addPayment = async (req, res) => {
   const companyId = req.user.companyId;
   const { customerId } = req.params;
@@ -100,46 +79,37 @@ exports.addPayment = async (req, res) => {
     const parsedAmount = parseFloat(amount) || 0;
     const parsedDiscount = parseFloat(discount) || 0;
 
-    // Use a transaction to create payment and update customer balance
-    const result = await prisma.$transaction(async (tx) => {
-      const payment = await tx.customerPayment.create({
-        data: {
-          date: date ? new Date(date) : new Date(),
-          amount: parsedAmount,
-          paymentType: paymentType || 'IN',
-          paymentMode: paymentMode || 'Cash',
-          referenceNo,
-          discount: parsedDiscount,
-          remark,
-          customerId: parseInt(customerId, 10),
-          companyId
-        }
-      });
+    // Update customer balance directly
+    // Payment IN = they paid us -> balance decreases
+    // Payment OUT = we paid them -> balance increases
+    let balanceAdjustment = 0;
+    if (paymentType === 'IN') {
+      balanceAdjustment = -(parsedAmount + parsedDiscount);
+    } else {
+      balanceAdjustment = (parsedAmount + parsedDiscount);
+    }
 
-      // Update customer balance
-      // Balance = what they owe. 
-      // Payment IN = they paid us -> balance decreases
-      // Payment OUT = we paid them -> balance increases
-      let balanceAdjustment = 0;
-      if (paymentType === 'IN') {
-        balanceAdjustment = -(parsedAmount + parsedDiscount);
-      } else {
-        balanceAdjustment = (parsedAmount + parsedDiscount);
+    const updatedCustomer = await prisma.customer.update({
+      where: { id: parseInt(customerId, 10) },
+      data: {
+        balance: { increment: balanceAdjustment }
       }
-
-      await tx.customer.update({
-        where: { id: parseInt(customerId, 10) },
-        data: {
-          balance: { increment: balanceAdjustment }
-        }
-      });
-
-      return payment;
     });
 
-    res.status(201).json({ success: true, data: result });
+    res.status(201).json({ 
+      success: true, 
+      data: { 
+        customerId: parseInt(customerId, 10),
+        amount: parsedAmount,
+        discount: parsedDiscount,
+        paymentType,
+        remark,
+        newBalance: updatedCustomer.balance
+      } 
+    });
   } catch (error) {
     console.error('Error adding payment:', error);
     res.status(500).json({ success: false, message: 'Server error' });
   }
 };
+
