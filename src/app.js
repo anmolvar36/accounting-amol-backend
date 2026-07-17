@@ -49,6 +49,15 @@ const productTagRoutes = require('./routes/productTagRoutes.js');
 const commissionTypeRoutes = require('./routes/commissionTypeRoutes.js');
 const ledgerRoutes = require('./routes/ledgerRoutes.js');
 const gstrRoutes = require('./routes/gstrRoutes.js');
+const complaintRoutes = require('./routes/complaintRoutes.js');
+const serviceReminderRoutes = require('./routes/serviceReminderRoutes.js');
+const messageTemplateRoutes = require('./routes/messageTemplateRoutes.js');
+const bankStatementRoutes = require('./routes/bankStatementRoutes.js');
+const recycleBinRoutes = require('./routes/recycleBinRoutes.js');
+const publicRoutes = require('./routes/publicRoutes.js');
+
+// Public routes (no auth required) — register BEFORE authenticated routes
+app.use('/api/v1/public', publicRoutes);
 
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/companies', companyRoutes);
@@ -85,6 +94,11 @@ app.use('/api/v1/product-tags', productTagRoutes);
 app.use('/api/v1/commission-types', commissionTypeRoutes);
 app.use('/api/v1/ledger', ledgerRoutes);
 app.use('/api/v1/gstr', gstrRoutes);
+app.use('/api/v1/complaints', complaintRoutes);
+app.use('/api/v1/service-reminders', serviceReminderRoutes);
+app.use('/api/v1/message-templates', messageTemplateRoutes);
+app.use('/api/v1/bank-statements', bankStatementRoutes);
+app.use('/api/v1/recycle-bin', recycleBinRoutes);
 
 // Error Handling Middleware
 app.use((err, req, res, next) => {

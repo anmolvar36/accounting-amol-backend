@@ -72,7 +72,7 @@ exports.getMetrics = async (req, res) => {
 
     const compOutAgg = await prisma.customer.aggregate({
       _sum: { balance: true },
-      where: { companyId, type: 'SUPPLIER' }
+      where: { companyId, type: 'COMPANY' }
     });
     const companyOutstanding = compOutAgg._sum.balance || 0;
 
@@ -115,9 +115,15 @@ exports.getMetrics = async (req, res) => {
       if (p.expiryMonth && p.expiryMonth < currentMonthStr) expiredCount++;
     });
 
-    const remindersCount = await prisma.followup.count({
+    const followupsCount = await prisma.followup.count({
       where: { customer: { companyId } }
     });
+
+    const dueInvoicesCount = await prisma.invoice.count({
+      where: { companyId, status: 'DUE' }
+    });
+
+    const remindersCount = followupsCount + dueInvoicesCount;
 
     const todayCashSales = await prisma.invoice.aggregate({
       _sum: { totalAmount: true },

@@ -15,7 +15,7 @@ exports.getAllCompanies = async (req, res) => {
 };
 
 exports.createCompany = async (req, res) => {
-  const { name, ownerEmail, ownerName, planId } = req.body;
+  const { name, ownerEmail, ownerName, planId, phone, address, startDate, expireDate, planType, logo, password } = req.body;
 
   try {
     // Check if email already exists
@@ -24,7 +24,7 @@ exports.createCompany = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Email is already in use' });
     }
 
-    const hashedPassword = await bcrypt.hash('password123', 10); // Default password
+    const hashedPassword = await bcrypt.hash(password || 'password123', 10); // Use provided password or default
 
     // Use Prisma transaction to ensure both or neither are created
     const newCompany = await prisma.$transaction(async (tx) => {
@@ -33,6 +33,12 @@ exports.createCompany = async (req, res) => {
           name,
           ownerName,
           ownerEmail,
+          phone: phone || null,
+          address: address || null,
+          startDate: startDate ? new Date(startDate) : null,
+          expireDate: expireDate ? new Date(expireDate) : null,
+          planType: planType || null,
+          logo: logo || null,
           planId: planId ? parseInt(planId) : null,
         },
         include: { plan: true }
@@ -80,13 +86,37 @@ exports.updateStatus = async (req, res) => {
 
 exports.updateCompany = async (req, res) => {
   const { id } = req.params;
-  const { name, ownerName, ownerEmail, planId } = req.body;
+  const { name, ownerName, ownerEmail, planId, phone, address, startDate, expireDate, planType, logo, password } = req.body;
   try {
-    const updatedCompany = await prisma.company.update({
-      where: { id: parseInt(id) },
-      data: { name, ownerName, ownerEmail, planId: planId ? parseInt(planId) : null },
-      include: { plan: true }
+    const updatedCompany = await prisma.$transaction(async (tx) => {
+      const comp = await tx.company.update({
+        where: { id: parseInt(id) },
+        data: { 
+          name, 
+          ownerName, 
+          ownerEmail, 
+          phone: phone !== undefined ? phone : undefined,
+          address: address !== undefined ? address : undefined,
+          startDate: startDate ? new Date(startDate) : undefined,
+          expireDate: expireDate ? new Date(expireDate) : undefined,
+          planType: planType !== undefined ? planType : undefined,
+          logo: logo !== undefined ? logo : undefined,
+          planId: planId ? parseInt(planId) : null 
+        },
+        include: { plan: true }
+      });
+
+      if (password) {
+        const hashedPassword = await bcrypt.hash(password, 10);
+        await tx.user.updateMany({
+          where: { email: ownerEmail, companyId: comp.id },
+          data: { password: hashedPassword }
+        });
+      }
+
+      return comp;
     });
+
     res.status(200).json({ success: true, message: 'Company updated', data: updatedCompany });
   } catch (error) {
     console.error(error);

@@ -22,7 +22,16 @@ exports.getSettings = async (req, res) => {
       });
     }
 
-    res.status(200).json({ success: true, data: settings });
+    // Safely parse extraColumns in case DB driver returns it as a string
+    const data = {
+      ...settings,
+      extraColumns: Array.isArray(settings.extraColumns)
+        ? settings.extraColumns
+        : (typeof settings.extraColumns === 'string'
+            ? JSON.parse(settings.extraColumns)
+            : [])
+    };
+    res.status(200).json({ success: true, data });
   } catch (error) {
     console.error(error);
     res.status(500).json({ success: false, message: 'Server error' });

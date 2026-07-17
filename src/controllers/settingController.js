@@ -6,6 +6,21 @@ exports.getSettings = async (req, res) => {
   try {
     const companyId = req.user.companyId;
 
+    if (!companyId) {
+      return res.status(200).json({ 
+        success: true, 
+        data: {
+          printHeader: null,
+          printFooter: null,
+          showLogo: true,
+          paperSize: 'A4',
+          fontSize: 'medium',
+          currency: 'INR',
+          dateFormat: 'DD-MM-YYYY',
+        }
+      });
+    }
+
     let settings = await prisma.companySetting.findUnique({
       where: { companyId }
     });
@@ -35,11 +50,15 @@ exports.getSettings = async (req, res) => {
 exports.updateSettings = async (req, res) => {
   try {
     const companyId = req.user.companyId;
+    if (!companyId) {
+      return res.status(400).json({ success: false, error: "No company associated with this user" });
+    }
     const updates = req.body;
 
     // Optional: Filter out properties that are not allowed to be updated directly
     delete updates.id;
     delete updates.companyId;
+    delete updates.showIMEI; // Not in Prisma schema
 
     const updatedSettings = await prisma.companySetting.upsert({
       where: { companyId },

@@ -38,6 +38,26 @@ exports.createInvoice = async (req, res) => {
 
   try {
     const result = await prisma.$transaction(async (tx) => {
+      // Check invoice limit based on subscription plan
+      const companyWithPlan = await tx.company.findUnique({
+        where: { id: companyId },
+        include: { plan: true }
+      });
+      
+      if (companyWithPlan && companyWithPlan.plan && companyWithPlan.plan.features) {
+        let features = companyWithPlan.plan.features;
+        if (typeof features === 'string') {
+          try { features = JSON.parse(features); } catch(e){}
+        }
+        const invoiceLimit = features.invoiceLimit || features.invoices;
+        if (invoiceLimit && String(invoiceLimit).toLowerCase() !== 'unlimited') {
+          const currentInvoiceCount = await tx.invoice.count({ where: { companyId } });
+          if (currentInvoiceCount >= parseInt(invoiceLimit, 10)) {
+            throw new Error(`Invoice limit reached for your current plan (${invoiceLimit} invoices). Please upgrade your plan.`);
+          }
+        }
+      }
+
       const customer = await tx.customer.findUnique({
         where: { id: parseInt(customerId, 10) },
         select: { id: true, companyId: true }
@@ -46,18 +66,36 @@ exports.createInvoice = async (req, res) => {
         throw new Error('Invalid customer for this company');
       }
 
+      let earnedPoints = 0;
+      const pointsToRedeem = parseInt(req.body.redeemedPoints, 10) || 0;
+
       for (const item of items) {
         const product = await tx.product.findUnique({
           where: { id: parseInt(item.productId, 10) },
-          select: { id: true, stock: true, companyId: true }
+          select: { id: true, stock: true, companyId: true, creditSalePrice: true }
         });
         if (!product || product.companyId !== companyId) {
           throw new Error(`Product ${item.productId} not found for this company`);
         }
+        
+        if (product.creditSalePrice && product.creditSalePrice > 0) {
+          earnedPoints += Math.floor(product.creditSalePrice * (parseInt(item.quantity) || 0));
+        }
+
         await tx.product.update({
           where: { id: product.id },
           data: { stock: { decrement: parseInt(item.quantity) } }
         });
+      }
+
+      if (customerId) {
+        const netPoints = earnedPoints - pointsToRedeem;
+        if (netPoints !== 0) {
+          await tx.customer.update({
+            where: { id: parseInt(customerId, 10) },
+            data: { loyaltyPoints: { increment: netPoints } }
+          });
+        }
       }
 
       const invoice = await tx.invoice.create({
@@ -82,6 +120,8 @@ exports.createInvoice = async (req, res) => {
               productId: parseInt(item.productId, 10),
               quantity: parseInt(item.quantity) || 0,
               freeQty: parseInt(item.freeQty) || 0,
+              primaryOpeningQty: parseFloat(item.primaryOpeningQty) || 0,
+              secOpeningQty: parseFloat(item.secOpeningQty) || 0,
               price: parseFloat(item.price) || 0,
               discount1: parseFloat(item.discount1) || 0,
               discount2: parseFloat(item.discount2) || 0,
@@ -151,6 +191,44 @@ exports.getInvoices = async (req, res) => {
     res.status(200).json({ success: true, data: invoices });
   } catch (error) {
     console.error('Error fetching invoices:', error);
+    res.status(400).json({ success: false, message: error.message || 'Server error' });
+  }
+};
+
+/**
+ * Mark an invoice as PAID
+ */
+exports.markInvoicePaid = async (req, res) => {
+  const companyId = req.user.companyId;
+  const { id } = req.params;
+
+  try {
+    const invoiceId = parseInt(id, 10);
+    const invoice = await prisma.invoice.findUnique({
+      where: { id: invoiceId }
+    });
+
+    if (!invoice || invoice.companyId !== companyId) {
+      return res.status(404).json({ success: false, message: 'Invoice not found' });
+    }
+
+    const updatedInvoice = await prisma.invoice.update({
+      where: { id: invoiceId },
+      data: { status: 'PAID' }
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        actionType: 'MARK_INVOICE_PAID',
+        details: JSON.stringify({ invoiceNo: invoice.invoiceNo }),
+        userName: String(req.user.email || req.user.name || req.user.id),
+        companyId,
+      },
+    });
+
+    res.status(200).json({ success: true, message: 'Invoice marked as paid', data: updatedInvoice });
+  } catch (error) {
+    console.error('Error marking invoice as paid:', error);
     res.status(400).json({ success: false, message: error.message || 'Server error' });
   }
 };

@@ -4,6 +4,22 @@ const prisma = new PrismaClient();
 exports.getLedger = async (req, res) => {
   const companyId = req.user.companyId;
   const { customerId } = req.params;
+  const { fromDate, toDate } = req.query;
+
+  let dateFilter = {};
+  if (fromDate || toDate) {
+    dateFilter.date = {};
+    if (fromDate) {
+      const start = new Date(fromDate);
+      start.setHours(0, 0, 0, 0);
+      dateFilter.date.gte = start;
+    }
+    if (toDate) {
+      const end = new Date(toDate);
+      end.setHours(23, 59, 59, 999);
+      dateFilter.date.lte = end;
+    }
+  }
 
   try {
     // 1. Get customer
@@ -17,7 +33,7 @@ exports.getLedger = async (req, res) => {
 
     // 2. Get all invoices (Sales = Debit)
     const invoices = await prisma.invoice.findMany({
-      where: { customerId: parseInt(customerId, 10), companyId },
+      where: { customerId: parseInt(customerId, 10), companyId, ...dateFilter },
       orderBy: { date: 'asc' }
     });
 

@@ -58,7 +58,8 @@ exports.getQuickItems = async (req, res) => {
 
 exports.checkout = async (req, res) => {
   const companyId = req.user.companyId;
-  const { customerId, items, paymentModes, totalAmount, loyaltyPointsUsed, loyaltyDiscountValue } = req.body;
+  const { customerId, items, paymentModes, totalAmount, loyaltyPointsUsed, redeemedPoints, loyaltyDiscountValue } = req.body;
+  const pointsToRedeem = parseInt(redeemedPoints, 10) || parseInt(loyaltyPointsUsed, 10) || 0;
 
   if (!Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ success: false, message: 'Cart is empty.' });
@@ -66,32 +67,41 @@ exports.checkout = async (req, res) => {
 
   try {
     const result = await prisma.$transaction(async (tx) => {
-      // Deduct loyalty points if used
-      if (loyaltyPointsUsed && customerId) {
-        await tx.customer.update({
-          where: { id: parseInt(customerId, 10) },
-          data: { loyaltyPoints: { decrement: parseInt(loyaltyPointsUsed, 10) } }
-        });
-      }
-
       // Format payment modes to string
       let paymentModeStr = 'Cash';
       if (Array.isArray(paymentModes) && paymentModes.length > 0) {
         paymentModeStr = paymentModes.map(pm => `${pm.mode}:${pm.amount}`).join(',');
       }
 
+      let earnedPoints = 0;
+
       for (const item of items) {
         const product = await tx.product.findUnique({
           where: { id: parseInt(item.productId, 10) },
-          select: { id: true, stock: true, companyId: true }
+          select: { id: true, stock: true, companyId: true, creditSalePrice: true }
         });
         if (!product || product.companyId !== companyId) {
           throw new Error(`Product ${item.productId} not found`);
         }
+        
+        if (product.creditSalePrice && product.creditSalePrice > 0) {
+          earnedPoints += Math.floor(product.creditSalePrice * (parseInt(item.qty || item.quantity) || 0));
+        }
+
         await tx.product.update({
           where: { id: product.id },
           data: { stock: { decrement: parseInt(item.qty || item.quantity) } }
         });
+      }
+
+      if (customerId) {
+        const netPoints = earnedPoints - pointsToRedeem;
+        if (netPoints !== 0) {
+          await tx.customer.update({
+            where: { id: parseInt(customerId, 10) },
+            data: { loyaltyPoints: { increment: netPoints } }
+          });
+        }
       }
 
       const invoice = await tx.invoice.create({

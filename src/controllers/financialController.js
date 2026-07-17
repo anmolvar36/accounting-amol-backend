@@ -128,32 +128,21 @@ exports.getCollectionReport = async (req, res) => {
 exports.getDayBookSummary = async (req, res) => {
   try {
     const companyId = req.user.companyId;
-    const { dateType, date, withItems, voucherType } = req.query;
+    const { dateType, fromDate, toDate, withItems, voucherType } = req.query;
 
     let dateFilter = {};
-    if (date) {
-      const targetDate = new Date(date);
-      // Ensure the date encompasses the full day
-      const start = new Date(targetDate);
-      start.setHours(0, 0, 0, 0);
-      
-      const end = new Date(targetDate);
-      end.setHours(23, 59, 59, 999);
-
-      if (dateType === 'Modified Date') {
-        dateFilter = {
-          updatedAt: {
-            gte: start,
-            lte: end
-          }
-        };
-      } else {
-        dateFilter = {
-          date: {
-            gte: start,
-            lte: end
-          }
-        };
+    if (fromDate || toDate) {
+      const field = dateType === 'Modified Date' ? 'updatedAt' : 'date';
+      dateFilter[field] = {};
+      if (fromDate) {
+        const start = new Date(fromDate);
+        start.setHours(0, 0, 0, 0);
+        dateFilter[field].gte = start;
+      }
+      if (toDate) {
+        const end = new Date(toDate);
+        end.setHours(23, 59, 59, 999);
+        dateFilter[field].lte = end;
       }
     }
 
@@ -284,18 +273,18 @@ exports.getBrandwiseSale = async (req, res) => {
     const { startDate, endDate, customerId } = req.query;
 
     let dateFilter = {};
-    if (startDate && endDate) {
-      const start = new Date(startDate);
-      start.setHours(0, 0, 0, 0);
-      const end = new Date(endDate);
-      end.setHours(23, 59, 59, 999);
-      
-      dateFilter = {
-        date: {
-          gte: start,
-          lte: end
-        }
-      };
+    if (startDate || endDate) {
+      dateFilter.date = {};
+      if (startDate) {
+        const start = new Date(startDate);
+        start.setHours(0, 0, 0, 0);
+        dateFilter.date.gte = start;
+      }
+      if (endDate) {
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+        dateFilter.date.lte = end;
+      }
     }
 
     const invoices = await prisma.invoice.findMany({
@@ -360,18 +349,18 @@ exports.getBrandwisePurchase = async (req, res) => {
     const { startDate, endDate, supplierId } = req.query;
 
     let dateFilter = {};
-    if (startDate && endDate) {
-      const start = new Date(startDate);
-      start.setHours(0, 0, 0, 0);
-      const end = new Date(endDate);
-      end.setHours(23, 59, 59, 999);
-      
-      dateFilter = {
-        date: {
-          gte: start,
-          lte: end
-        }
-      };
+    if (startDate || endDate) {
+      dateFilter.date = {};
+      if (startDate) {
+        const start = new Date(startDate);
+        start.setHours(0, 0, 0, 0);
+        dateFilter.date.gte = start;
+      }
+      if (endDate) {
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+        dateFilter.date.lte = end;
+      }
     }
 
     const invoices = await prisma.invoice.findMany({
@@ -433,18 +422,18 @@ exports.getCategorywiseSale = async (req, res) => {
     const { startDate, endDate, customerId } = req.query;
 
     let dateFilter = {};
-    if (startDate && endDate) {
-      const start = new Date(startDate);
-      start.setHours(0, 0, 0, 0);
-      const end = new Date(endDate);
-      end.setHours(23, 59, 59, 999);
-      
-      dateFilter = {
-        date: {
-          gte: start,
-          lte: end
-        }
-      };
+    if (startDate || endDate) {
+      dateFilter.date = {};
+      if (startDate) {
+        const start = new Date(startDate);
+        start.setHours(0, 0, 0, 0);
+        dateFilter.date.gte = start;
+      }
+      if (endDate) {
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+        dateFilter.date.lte = end;
+      }
     }
 
     const invoices = await prisma.invoice.findMany({
@@ -506,18 +495,18 @@ exports.getCategorywisePurchase = async (req, res) => {
     const { startDate, endDate, supplierId } = req.query;
 
     let dateFilter = {};
-    if (startDate && endDate) {
-      const start = new Date(startDate);
-      start.setHours(0, 0, 0, 0);
-      const end = new Date(endDate);
-      end.setHours(23, 59, 59, 999);
-      
-      dateFilter = {
-        date: {
-          gte: start,
-          lte: end
-        }
-      };
+    if (startDate || endDate) {
+      dateFilter.date = {};
+      if (startDate) {
+        const start = new Date(startDate);
+        start.setHours(0, 0, 0, 0);
+        dateFilter.date.gte = start;
+      }
+      if (endDate) {
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+        dateFilter.date.lte = end;
+      }
     }
 
     const invoices = await prisma.invoice.findMany({
@@ -765,7 +754,7 @@ exports.getEmployeewiseSale = async (req, res) => {
 exports.getInvoicesReport = async (req, res) => {
   try {
     const companyId = req.user.companyId;
-    const { type, date, customerId } = req.query;
+    const { type, fromDate, toDate, customerId } = req.query;
 
     // Map frontend type to DB invoice type
     const typeMap = {
@@ -779,13 +768,18 @@ exports.getInvoicesReport = async (req, res) => {
     const dbType = type ? typeMap[type] : 'SALES';
 
     let dateFilter = {};
-    if (date) {
-      const targetDate = new Date(date);
-      const start = new Date(targetDate);
-      start.setHours(0, 0, 0, 0);
-      const end = new Date(targetDate);
-      end.setHours(23, 59, 59, 999);
-      dateFilter = { date: { gte: start, lte: end } };
+    if (fromDate || toDate) {
+      dateFilter.date = {};
+      if (fromDate) {
+        const start = new Date(fromDate);
+        start.setHours(0, 0, 0, 0);
+        dateFilter.date.gte = start;
+      }
+      if (toDate) {
+        const end = new Date(toDate);
+        end.setHours(23, 59, 59, 999);
+        dateFilter.date.lte = end;
+      }
     }
 
     const invoices = await prisma.invoice.findMany({

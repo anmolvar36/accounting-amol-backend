@@ -136,3 +136,117 @@ exports.deleteCustomer = async (req, res) => {
     res.status(500).json({ success: false, message: 'Server error' });
   }
 };
+
+// Get stats for a customer (Joining date, Total Billing, Last Transaction)
+exports.getCustomerStats = async (req, res) => {
+  const companyId = req.user.companyId;
+  const { id } = req.params;
+  
+  try {
+    const customerId = parseInt(id, 10);
+    const customer = await prisma.customer.findUnique({
+      where: { id: customerId, companyId }
+    });
+    
+    if (!customer) {
+      return res.status(404).json({ success: false, message: 'Customer not found' });
+    }
+    
+    const invoices = await prisma.invoice.findMany({
+      where: { 
+        companyId, 
+        customerId: customer.id,
+        status: { not: 'CANCELLED' } 
+      },
+      orderBy: { date: 'desc' },
+      select: { date: true, totalAmount: true, type: true }
+    });
+    
+    // total billing is sum of all transaction amounts.
+    const totalBilling = invoices.reduce((acc, inv) => acc + (inv.totalAmount || 0), 0);
+    const lastTransaction = invoices.length > 0 ? invoices[0].date : null;
+    
+    res.status(200).json({
+      success: true,
+      data: {
+        joiningDate: customer.joiningDate || customer.createdAt,
+        totalBilling,
+        lastTransaction,
+        dueAmount: customer.balance
+      }
+    });
+  } catch(error) {
+    console.error(error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+// Recalculate balances for all customers and suppliers
+exports.balanceCorrection = async (req, res) => {
+  const companyId = req.user.companyId;
+  try {
+    const customers = await prisma.customer.findMany({ where: { companyId }, select: { id: true, type: true } });
+
+    // Calculate total credit sales for each customer (Increases balance)
+    const creditSales = await prisma.invoice.groupBy({
+      by: ['customerId'],
+      where: { companyId, type: 'SALES', paymentMode: 'Credit', customerId: { not: null } },
+      _sum: { totalAmount: true }
+    });
+
+    // Calculate total credit sales returns for each customer (Decreases balance)
+    const creditReturns = await prisma.invoice.groupBy({
+      by: ['customerId'],
+      where: { companyId, type: 'SALES_RETURN', paymentMode: 'Credit', customerId: { not: null } },
+      _sum: { totalAmount: true }
+    });
+
+    // For suppliers: Purchase increases balance (we owe them), Purchase Return decreases balance
+    const creditPurchases = await prisma.invoice.groupBy({
+      by: ['customerId'], // Assuming supplier is stored in customerId
+      where: { companyId, type: 'PURCHASE', paymentMode: 'Credit', customerId: { not: null } },
+      _sum: { totalAmount: true }
+    });
+
+    const creditPurchaseReturns = await prisma.invoice.groupBy({
+      by: ['customerId'],
+      where: { companyId, type: 'PURCHASE_RETURN', paymentMode: 'Credit', customerId: { not: null } },
+      _sum: { totalAmount: true }
+    });
+
+    const salesMap = {};
+    creditSales.forEach(s => salesMap[s.customerId] = s._sum.totalAmount || 0);
+
+    const returnsMap = {};
+    creditReturns.forEach(r => returnsMap[r.customerId] = r._sum.totalAmount || 0);
+
+    const purchaseMap = {};
+    creditPurchases.forEach(p => purchaseMap[p.customerId] = p._sum.totalAmount || 0);
+
+    const purchaseReturnsMap = {};
+    creditPurchaseReturns.forEach(pr => purchaseReturnsMap[pr.customerId] = pr._sum.totalAmount || 0);
+
+    await prisma.$transaction(async (tx) => {
+      for (const customer of customers) {
+        let calculatedBalance = 0;
+        if (customer.type === 'Supplier') {
+          // Balance = Purchases - Purchase Returns
+          calculatedBalance = (purchaseMap[customer.id] || 0) - (purchaseReturnsMap[customer.id] || 0);
+        } else {
+          // Balance = Sales - Sales Returns
+          calculatedBalance = (salesMap[customer.id] || 0) - (returnsMap[customer.id] || 0);
+        }
+
+        await tx.customer.update({
+          where: { id: customer.id },
+          data: { balance: calculatedBalance }
+        });
+      }
+    });
+
+    res.status(200).json({ success: true, message: 'All balances corrected successfully' });
+  } catch (error) {
+    console.error('Balance correction error:', error);
+    res.status(500).json({ success: false, message: 'Server error during balance correction' });
+  }
+};

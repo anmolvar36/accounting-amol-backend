@@ -11,10 +11,16 @@ model Company {
   id         Int      @id @default(autoincrement())
   name       String
   ownerName  String
-  ownerEmail String   @unique
+  ownerEmail String   @unique(map: "Company_ownerEmail_key")
   status     CompanyStatus @default(ACTIVE)
   planId     Int?
   plan       SubscriptionPlan? @relation(fields: [planId], references: [id])
+  phone      String?
+  address    String?
+  startDate  DateTime?
+  expireDate DateTime?
+  planType   String?
+  logo       String? @db.LongText
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
@@ -30,6 +36,7 @@ model Company {
   expenses   Expense[]
   expenseTransactions ExpenseTransaction[]
   incomes    Income[]
+  incomeTransactions IncomeTransaction[]
   payments   PaymentBook[]
   vouchers   Voucher[]
   boms       Bom[]
@@ -49,6 +56,12 @@ model Company {
   bankTransactions BankTransaction[]
   paymentBookTransactions PaymentBookTransaction[]
   cashBooks    CashBook[]
+  complaints     Complaint[]
+  serviceReminders ServiceReminder[]
+  messageTemplates MessageTemplate[]
+  bankStatements BankStatement[]
+  bankStatementRecords BankStatementRecord[]
+  stockAdjustmentLogs StockAdjustmentLog[]
 
  @@map("company")
 }
@@ -73,11 +86,12 @@ model SubscriptionPlan {
 model User {
   id        Int      @id @default(autoincrement())
   name      String
-  email     String   @unique
+  email     String   @unique(map: "User_email_key")
   password  String
   role      UserRole @default(STAFF)
   companyId Int?
-  company   Company? @relation(fields: [companyId], references: [id])
+  company   Company? @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  notificationPermissions Json?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
  @@map("user")
@@ -117,6 +131,8 @@ model Product {
   hasBom          Boolean?      @default(false)
   qtySlabs        Json?
   openingStockRate Float?       @default(0)
+  secOpeningQty   Float?        @default(0)
+  asOfDate        String?
   warehouse       String?
   bomName         String?
   isMultiLevel    Boolean?      @default(false)
@@ -136,15 +152,21 @@ model Product {
   description     String?       @db.Text
   termsCondition  String?       @db.Text
   productTags     String?
+  rawMaterials    Json?
+  extraCharges    Json?
+  subItems        Json?
+  subInventory    Json?
   companyId       Int
-  company      Company       @relation(fields: [companyId], references: [id])
+  company      Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
   invoiceItems InvoiceItem[]
   bomItems     BomItem[]
   attributeValues ProductAttributeValue[]
+  stockAdjustmentLogs StockAdjustmentLog[]
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
+  deletedAt    DateTime?
 
-  @@unique([sku, companyId])
+  @@unique([sku, companyId], map: "Product_sku_companyId_key")
 
 @@map("product")
 }
@@ -177,11 +199,12 @@ model Customer {
   sezParty      Boolean?  @default(false)
   focParty      Boolean?  @default(false)
   companyId Int
-  company   Company  @relation(fields: [companyId], references: [id])
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   invoices  Invoice[]
   followups Followup[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  deletedAt DateTime?
 
 @@map("customer")
 }
@@ -228,7 +251,7 @@ model Invoice {
   remark         String?
   status         String        @default("PAID")
   companyId      Int
-  company        Company       @relation(fields: [companyId], references: [id])
+  company        Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
   customerId     Int?
   customer       Customer?     @relation(fields: [customerId], references: [id])
   warehouseId    Int?
@@ -237,6 +260,7 @@ model Invoice {
   loadingSheetItems LoadingSheetItem[]
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
+  deletedAt      DateTime?
 
 @@map("invoice")
 }
@@ -249,9 +273,14 @@ model InvoiceItem {
   product   Product  @relation(fields: [productId], references: [id])
   quantity  Int      @default(1)
   freeQty   Int      @default(0)
+  primaryOpeningQty Float?   @default(0)
+  secOpeningQty     Float?   @default(0)
   price     Float    @default(0)
   discount1 Float    @default(0)
   discount2 Float    @default(0)
+  batchNo   String?
+  mfgDate   String?
+  expDate   String?
   imei      String?
   amount    Float    @default(0)
   gstRate   Float    @default(0)
@@ -264,14 +293,20 @@ model InvoiceItem {
 }
 
 model AuditLog {
-  id          Int      @id @default(autoincrement())
-  actionType  String
-  details     String
-  referenceId String?
-  userName    String
-  companyId   Int
-  company     Company  @relation(fields: [companyId], references: [id])
-  createdAt   DateTime @default(now())
+  id           Int      @id @default(autoincrement())
+  actionType   String
+  details      String?  @db.Text
+  referenceId  String?
+  userName     String
+  userRole     String   @default("User")
+  billNumber   String?
+  moduleName   String?
+  previousData Json?
+  updatedData  Json?
+  ipAddress    String?
+  companyId    Int
+  company      Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdAt    DateTime @default(now())
 
 @@map("auditlog")
 }
@@ -286,9 +321,10 @@ model Bank {
   ifsc      String?
   accountNo String?
   companyId Int
-  company   Company  @relation(fields: [companyId], references: [id])
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   transfersFrom BankTransaction[] @relation("BankTransfersFrom")
   transfersTo   BankTransaction[] @relation("BankTransfersTo")
+  bankStatements BankStatement[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -310,7 +346,7 @@ model Employee {
   commissionOnManufacturing  Float    @default(0)
   balance                    Float    @default(0)
   companyId                  Int
-  company                    Company  @relation(fields: [companyId], references: [id])
+  company                    Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   transactions               EmployeeTransaction[]
   attendances                Attendance[]
   createdAt                  DateTime @default(now())
@@ -330,7 +366,7 @@ model Attendance {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  @@unique([employeeId, date])
+  @@unique([employeeId, date], map: "Attendance_employeeId_date_key")
 
 @@map("attendance")
 }
@@ -342,7 +378,7 @@ model Category {
   saleDiscount     Float    @default(0)
   isActive         Boolean  @default(true)
   companyId        Int
-  company          Company  @relation(fields: [companyId], references: [id])
+  company          Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   attributes       CategoryAttribute[]
   units            CategoryUnit[]
   createdAt        DateTime @default(now())
@@ -359,7 +395,7 @@ model Expense {
   isActive  Boolean  @default(true)
   balance   Float    @default(0)
   companyId Int
-  company   Company  @relation(fields: [companyId], references: [id])
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   transactions ExpenseTransaction[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -377,7 +413,7 @@ model ExpenseTransaction {
   expenseId     Int
   expense       Expense  @relation(fields: [expenseId], references: [id], onDelete: Cascade)
   companyId     Int
-  company       Company  @relation(fields: [companyId], references: [id])
+  company       Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
@@ -389,12 +425,31 @@ model Income {
   name      String
   head      String?
   isActive  Boolean  @default(true)
+  balance   Float    @default(0)
   companyId Int
-  company   Company  @relation(fields: [companyId], references: [id])
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  transactions IncomeTransaction[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
 @@map("income")
+}
+
+model IncomeTransaction {
+  id            Int      @id @default(autoincrement())
+  date          DateTime @default(now())
+  incomeAmount  Float    @default(0)
+  paidAmount    Float    @default(0)
+  discount      Float    @default(0)
+  remark        String?
+  incomeId      Int
+  income        Income   @relation(fields: [incomeId], references: [id], onDelete: Cascade)
+  companyId     Int
+  company       Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+@@map("incometransaction")
 }
 
 model PaymentBook {
@@ -404,7 +459,7 @@ model PaymentBook {
   city         String?
   isActive     Boolean  @default(true)
   companyId    Int
-  company      Company  @relation(fields: [companyId], references: [id])
+  company      Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   transactions PaymentBookTransaction[]
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
@@ -418,7 +473,7 @@ model Voucher {
   type      String
   head      String
   companyId Int
-  company   Company  @relation(fields: [companyId], references: [id])
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -430,7 +485,7 @@ model Bom {
   name      String
   isActive  Boolean  @default(true)
   companyId Int
-  company   Company  @relation(fields: [companyId], references: [id])
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   items     BomItem[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -458,7 +513,7 @@ model PartyTag {
   name      String
   isActive  Boolean  @default(true)
   companyId Int
-  company   Company  @relation(fields: [companyId], references: [id])
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -470,7 +525,7 @@ model ProductTag {
   name      String
   isActive  Boolean  @default(true)
   companyId Int
-  company   Company  @relation(fields: [companyId], references: [id])
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -482,7 +537,7 @@ model CommissionType {
   name      String
   isActive  Boolean  @default(true)
   companyId Int
-  company   Company  @relation(fields: [companyId], references: [id])
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 @@map("commissiontype")
@@ -494,7 +549,7 @@ model PartySetting {
   showPartyTags   Boolean  @default(true)
   showDueDate     Boolean  @default(true)
   extraColumns    Json?
-  companyId       Int      @unique
+  companyId       Int      @unique(map: "PartySetting_companyId_key")
   company         Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
@@ -513,7 +568,7 @@ model EmployeeTransaction {
   employeeId  Int
   employee    Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
   companyId   Int
-  company     Company  @relation(fields: [companyId], references: [id])
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 @@map("employeetransaction")
@@ -645,6 +700,7 @@ model CompanySetting {
   showListPrice       Boolean  @default(false)
   showPurchasePrice   Boolean  @default(false)
   showDiscount        Boolean  @default(false)
+  showDiscount2       Boolean  @default(false)
   hideTotalDiscount   Boolean  @default(false)
   hideFreightCharge   Boolean  @default(false)
   showPriceFirst      Boolean  @default(false)
@@ -700,6 +756,8 @@ model CompanySetting {
   showAutoQuantity        Boolean   @default(false)
   showMultiLocation       Boolean   @default(false)
   showUnitSection         Boolean   @default(true)
+  primaryOpeningQty       Boolean   @default(false)
+  secOpeningQty           Boolean   @default(false)
   showBarcodeField        Boolean   @default(true)
   showPurchasePriceCode   Boolean   @default(true)
   purchasePriceMarkup     Float     @default(0)
@@ -749,8 +807,14 @@ model CompanySetting {
   showBankDetails          Boolean   @default(false)
   accountingFormat         Boolean   @default(false)
   billWisePayment          Boolean   @default(false)
+  paymentReminderEnabled   Boolean   @default(false)
+  
+  // Complain Settings
+  showTechnician           Boolean   @default(true)
+  complainExtraColumn      String?   @db.Text
+  printSettings            Json?
 
-  companyId           Int      @unique
+  companyId           Int      @unique(map: "CompanySetting_companyId_key")
   company             Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
@@ -784,7 +848,7 @@ model LoadingSheetItem {
 
 model Currency {
   id          Int      @id @default(autoincrement())
-  code        String   @unique
+  code        String   @unique(map: "Currency_code_key")
   symbol      String?
   name        String
   isActive    Boolean  @default(true)
@@ -803,7 +867,7 @@ model BankTransaction {
   fromBankId   Int?
   toBankId     Int?
   companyId    Int
-  company      Company  @relation(fields: [companyId], references: [id])
+  company      Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   fromBank     Bank?    @relation("BankTransfersFrom", fields: [fromBankId], references: [id], onDelete: Cascade)
   toBank       Bank?    @relation("BankTransfersTo", fields: [toBankId], references: [id], onDelete: Cascade)
   createdAt    DateTime @default(now())
@@ -822,7 +886,7 @@ model PaymentBookTransaction {
   paymentBookId  Int
   paymentBook    PaymentBook  @relation(fields: [paymentBookId], references: [id], onDelete: Cascade)
   companyId      Int
-  company        Company      @relation(fields: [companyId], references: [id])
+  company        Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
 
@@ -871,7 +935,7 @@ model CategoryUnit {
   unitId     Int
   unit       Unit     @relation(fields: [unitId], references: [id], onDelete: Cascade)
   
-  @@unique([categoryId, unitId])
+  @@unique([categoryId, unitId], map: "CategoryUnit_categoryId_unitId_key")
 
 @@map("categoryunit")
 }
@@ -884,7 +948,104 @@ model ProductAttributeValue {
   attribute   CategoryAttribute @relation(fields: [attributeId], references: [id], onDelete: Cascade)
   value       Json
   
-  @@unique([productId, attributeId])
+  @@unique([productId, attributeId], map: "ProductAttributeValue_productId_attributeId_key")
 
 @@map("productattributevalue")
+}
+
+model Complaint {
+  id              Int      @id @default(autoincrement())
+  complainDate    DateTime @default(now())
+  partyName       String?
+  productName     String?
+  technicianName  String?
+  details         String?  @db.Text
+  serviceAmount   Float    @default(0)
+  remark          String?  @db.Text
+  location        String?
+  status          String   @default("Pending")
+  companyId       Int
+  company         Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  deletedAt       DateTime?
+  @@map("complaint")
+}
+
+model ServiceReminder {
+  id              Int      @id @default(autoincrement())
+  partyName       String
+  productName     String?
+  contactPerson   String?
+  mobileNo        String?
+  serviceDate     DateTime
+  note            String?  @db.Text
+  status          String   @default("Pending")
+  companyId       Int
+  company         Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  deletedAt       DateTime?
+  @@map("servicereminder")
+}
+
+model MessageTemplate {
+  id              Int      @id @default(autoincrement())
+  type            String   // SMS, WhatsApp, Email
+  name            String
+  content         String   @db.Text
+  isActive        Boolean  @default(true)
+  companyId       Int
+  company         Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  deletedAt       DateTime?
+  @@map("messagetemplate")
+}
+
+model BankStatement {
+  id              Int      @id @default(autoincrement())
+  bankId          Int
+  bank            Bank     @relation(fields: [bankId], references: [id], onDelete: Cascade)
+  uploadDate      DateTime @default(now())
+  fileName        String
+  companyId       Int
+  company         Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  records         BankStatementRecord[]
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  deletedAt       DateTime?
+  @@map("bankstatement")
+}
+
+model BankStatementRecord {
+  id              Int      @id @default(autoincrement())
+  statementId     Int
+  statement       BankStatement @relation(fields: [statementId], references: [id], onDelete: Cascade)
+  date            DateTime
+  description     String   @db.Text
+  refNo           String?
+  debit           Float    @default(0)
+  credit          Float    @default(0)
+  balance         Float    @default(0)
+  companyId       Int
+  company         Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  @@map("bankstatementrecord")
+}
+
+model StockAdjustmentLog {
+  id              Int      @id @default(autoincrement())
+  productId       Int
+  product         Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  oldStock        Int
+  newStock        Int
+  reason          String?  @db.Text
+  date            DateTime @default(now())
+  companyId       Int
+  company         Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  @@map("stockadjustmentlog")
 }
