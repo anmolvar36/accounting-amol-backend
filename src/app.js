@@ -9,7 +9,6 @@ app.use(cors());
 app.use(express.json());
 app.use(morgan('dev'));
 
-
 // Basic health check endpoint
 app.get('/api/v1/health', (req, res) => {
   res.status(200).json({ success: true, message: 'Server is running' });
