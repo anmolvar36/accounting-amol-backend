@@ -57,8 +57,10 @@ exports.register = async (req, res) => {
       user: {
         id: result.user.id,
         name: result.user.name,
+        email: result.user.email,
         role: result.user.role,
-        companyId: result.user.companyId
+        companyId: result.user.companyId,
+        createdAt: result.user.createdAt
       }
     });
 
@@ -103,8 +105,10 @@ exports.login = async (req, res) => {
       user: {
         id: user.id,
         name: user.name,
+        email: user.email,
         role: user.role,
-        companyId: user.companyId
+        companyId: user.companyId,
+        createdAt: user.createdAt
       }
     });
   } catch (error) {
@@ -141,6 +145,119 @@ exports.impersonate = async (req, res) => {
     });
   } catch (error) {
     console.error(error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+// GET /auth/me - Get own profile from DB
+exports.getMe = async (req, res) => {
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: req.user.id },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        phone: true,
+        role: true,
+        companyId: true,
+        createdAt: true
+      }
+    });
+    if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+    res.status(200).json({ success: true, data: user });
+  } catch (error) {
+    console.error('getMe error:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+// PUT /auth/me - Update own profile
+exports.updateMe = async (req, res) => {
+  try {
+    const { name, email } = req.body;
+    const updated = await prisma.user.update({
+      where: { id: req.user.id },
+      data: { name, email },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+        companyId: true,
+        createdAt: true
+      }
+    });
+    res.status(200).json({ success: true, data: updated });
+  } catch (error) {
+    console.error('updateMe error:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+// PUT /auth/change-password
+exports.changePassword = async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+
+    const user = await prisma.user.findUnique({ where: { id: req.user.id } });
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    const isMatch = await bcrypt.compare(currentPassword, user.password);
+    if (!isMatch) {
+      return res.status(400).json({ success: false, message: 'Incorrect current password' });
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    await prisma.user.update({
+      where: { id: req.user.id },
+      data: { password: hashedPassword }
+    });
+
+    res.status(200).json({ success: true, message: 'Password changed successfully' });
+  } catch (error) {
+    console.error('changePassword error:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+// POST /auth/register-sub-user
+exports.registerSubUser = async (req, res) => {
+  try {
+    const { name, password, role, allowFirms, stores, books } = req.body;
+    
+    // Only SUPERADMIN or COMPANY_ADMIN should be able to create sub-users
+    if (req.user.role !== 'SUPERADMIN' && req.user.role !== 'COMPANY_ADMIN') {
+      return res.status(403).json({ success: false, message: 'Not authorized to create users' });
+    }
+
+    // A dummy unique email generator if email is not provided
+    const userEmail = req.body.email || `user_${Date.now()}@${req.user.companyId}.local`;
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+    
+    const notificationPermissions = {
+      allowFirms: allowFirms || [],
+      stores: stores || [],
+      books: books || []
+    };
+
+    const newUser = await prisma.user.create({
+      data: {
+        name,
+        email: userEmail,
+        password: hashedPassword,
+        role: role || 'STAFF',
+        companyId: req.user.companyId,
+        notificationPermissions: notificationPermissions
+      }
+    });
+
+    res.status(201).json({ success: true, message: 'User registered successfully', data: { id: newUser.id, name: newUser.name } });
+  } catch (error) {
+    console.error('registerSubUser error:', error);
     res.status(500).json({ success: false, message: 'Server error' });
   }
 };

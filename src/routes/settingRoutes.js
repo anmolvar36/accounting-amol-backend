@@ -7,5 +7,6 @@ router.use(verifyToken);
 
 router.get('/', settingController.getSettings);
 router.put('/', settingController.updateSettings);
+router.post('/reset-database', settingController.resetDatabase);
 
 module.exports = router;

@@ -3,6 +3,10 @@ const router = express.Router();
 const companyController = require('../controllers/companyController');
 const { verifyToken, requireRole } = require('../middlewares/authMiddleware');
 
+// Routes for the current user's company (allowed for normal users)
+router.get('/me', verifyToken, companyController.getMeCompany);
+router.put('/me', verifyToken, companyController.updateMeCompany);
+
 // Superadmin only routes
 router.use(verifyToken, requireRole(['SUPERADMIN']));
 

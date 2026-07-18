@@ -33,11 +33,8 @@ exports.getPublicBill = async (req, res) => {
           select: {
             name: true,
             address: true,
-            city: true,
-            state: true,
             phone: true,
-            email: true,
-            gstin: true,
+            ownerEmail: true,
             logo: true,
           }
         }
@@ -48,9 +45,17 @@ exports.getPublicBill = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Bill not found' });
     }
 
-    res.status(200).json({ success: true, data: invoice });
+    const invoiceData = {
+      ...invoice,
+      company: invoice.company ? {
+        ...invoice.company,
+        email: invoice.company.ownerEmail
+      } : null
+    };
+
+    res.status(200).json({ success: true, data: invoiceData });
   } catch (error) {
     console.error('getPublicBill error:', error);
-    res.status(500).json({ success: false, message: 'Server error' });
+    res.status(500).json({ success: false, message: 'Server error', error: error.message });
   }
 };

@@ -136,3 +136,33 @@ exports.deleteCompany = async (req, res) => {
     res.status(500).json({ success: false, message: 'Server error' });
   }
 };
+
+exports.getMeCompany = async (req, res) => {
+  try {
+    const companyId = req.user.companyId;
+    if (!companyId) return res.status(404).json({ success: false, message: 'No company attached' });
+    const comp = await prisma.company.findUnique({ where: { id: companyId } });
+    res.status(200).json({ success: true, data: comp });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+exports.updateMeCompany = async (req, res) => {
+  try {
+    if (req.user.role !== 'COMPANY_ADMIN' && req.user.role !== 'SUPERADMIN') {
+      return res.status(403).json({ success: false, message: 'Not authorized' });
+    }
+    const companyId = req.user.companyId;
+    const { name, phone, address, logo } = req.body;
+    
+    const updated = await prisma.company.update({
+      where: { id: companyId },
+      data: { name, phone, address, logo }
+    });
+    res.status(200).json({ success: true, message: 'Updated', data: updated });
+  } catch (error) {
+    console.error('updateMeCompany error:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
