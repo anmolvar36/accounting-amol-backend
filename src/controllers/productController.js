@@ -7,8 +7,9 @@ exports.getProducts = async (req, res) => {
   const page = parseInt(req.query.page, 10) || 1;
   const limit = parseInt(req.query.limit, 10) || 100000;
   const skip = (page - 1) * limit;
+  const warehouseId = req.query.warehouseId ? parseInt(req.query.warehouseId, 10) : null;
   try {
-    const [products, total, unitConversions] = await Promise.all([
+    const [products, total, unitConversions, warehouseStocks] = await Promise.all([
       prisma.product.findMany({ 
         where: { companyId, deletedAt: null }, 
         include: { attributeValues: true },
@@ -16,20 +17,43 @@ exports.getProducts = async (req, res) => {
         take: limit 
       }),
       prisma.product.count({ where: { companyId, deletedAt: null } }),
-      prisma.unitConversion.findMany({ where: { companyId } })
+      prisma.unitConversion.findMany({ where: { companyId } }),
+      warehouseId ? prisma.warehouseStock.findMany({ where: { warehouseId, companyId } }) : []
     ]);
 
+    let queriedWarehouseName = null;
+    if (warehouseId) {
+      const wh = await prisma.warehouse.findUnique({
+        where: { id: warehouseId }
+      });
+      if (wh) queriedWarehouseName = wh.name;
+    }
+
     const enrichedProducts = products.map(product => {
-      if (product.baseUnit && product.salesUnit) {
-        const conversion = unitConversions.find(c => 
-          c.baseUnit.toLowerCase() === product.baseUnit.toLowerCase() && 
-          c.targetUnit.toLowerCase() === product.salesUnit.toLowerCase()
-        );
-        if (conversion && conversion.baseQty > 0) {
-           return { ...product, conversionRate: conversion.targetQty / conversion.baseQty };
+      let currentStock = product.stock;
+      if (warehouseId) {
+        const whStock = warehouseStocks.find(ws => ws.productId === product.id);
+        if (whStock) {
+          currentStock = whStock.stock;
+        } else if (queriedWarehouseName && product.warehouse === queriedWarehouseName) {
+          currentStock = product.stock;
+        } else {
+          currentStock = 0;
         }
       }
-      return product;
+      
+      const convertedProd = { ...product, stock: currentStock };
+
+      if (convertedProd.baseUnit && convertedProd.salesUnit) {
+        const conversion = unitConversions.find(c => 
+          c.baseUnit.toLowerCase() === convertedProd.baseUnit.toLowerCase() && 
+          c.targetUnit.toLowerCase() === convertedProd.salesUnit.toLowerCase()
+        );
+        if (conversion && conversion.baseQty > 0) {
+           return { ...convertedProd, conversionRate: conversion.targetQty / conversion.baseQty };
+        }
+      }
+      return convertedProd;
     });
 
     res.status(200).json({ success: true, data: enrichedProducts, meta: { total, page, limit } });
@@ -54,21 +78,6 @@ exports.createProduct = async (req, res) => {
   } = req.body;
   
   let finalSku = (sku && sku.trim() !== '') ? sku.trim() : 'SKU-' + Date.now() + '-' + Math.floor(1000 + Math.random() * 9000);
-  
-  // Resolve duplicate SKU if it already exists for the company
-  let skuExists = true;
-  let attempts = 0;
-  while (skuExists && attempts < 10) {
-    const existing = await prisma.product.findFirst({
-      where: { sku: finalSku, companyId }
-    });
-    if (existing) {
-      finalSku = `${sku || 'SKU'}-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
-      attempts++;
-    } else {
-      skuExists = false;
-    }
-  }
 
   try {
     const product = await prisma.product.create({
@@ -135,6 +144,36 @@ exports.createProduct = async (req, res) => {
         })
       }
     });
+
+    let targetWhId = null;
+    if (warehouse && warehouse.trim() !== '') {
+      const wh = await prisma.warehouse.findFirst({
+        where: { companyId, name: warehouse.trim() }
+      });
+      if (wh) targetWhId = wh.id;
+    }
+    if (!targetWhId) {
+      const firstWh = await prisma.warehouse.findFirst({
+        where: { companyId }
+      });
+      if (firstWh) targetWhId = firstWh.id;
+    }
+
+    if (targetWhId) {
+      await prisma.warehouseStock.upsert({
+        where: { productId_warehouseId: { productId: product.id, warehouseId: targetWhId } },
+        create: {
+          productId: product.id,
+          warehouseId: targetWhId,
+          stock: parseInt(stock, 10) || 0,
+          companyId
+        },
+        update: {
+          stock: parseInt(stock, 10) || 0
+        }
+      });
+    }
+
     res.status(201).json({ success: true, data: product });
   } catch (error) {
     console.error(error);
@@ -236,6 +275,40 @@ exports.updateProduct = async (req, res) => {
         });
       }
     }
+    if (stock !== undefined || warehouse !== undefined) {
+      const targetWhName = warehouse !== undefined ? warehouse : product.warehouse;
+      const targetStock = stock !== undefined ? parseInt(stock, 10) : product.stock;
+
+      let targetWhId = null;
+      if (targetWhName && targetWhName.trim() !== '') {
+        const wh = await prisma.warehouse.findFirst({
+          where: { companyId, name: targetWhName.trim() }
+        });
+        if (wh) targetWhId = wh.id;
+      }
+      if (!targetWhId) {
+        const firstWh = await prisma.warehouse.findFirst({
+          where: { companyId }
+        });
+        if (firstWh) targetWhId = firstWh.id;
+      }
+
+      if (targetWhId) {
+        await prisma.warehouseStock.upsert({
+          where: { productId_warehouseId: { productId: product.id, warehouseId: targetWhId } },
+          create: {
+            productId: product.id,
+            warehouseId: targetWhId,
+            stock: targetStock || 0,
+            companyId
+          },
+          update: {
+            stock: targetStock || 0
+          }
+        });
+      }
+    }
+
     res.status(200).json({ success: true, data: product });
   } catch (error) {
     console.error(error);
@@ -465,6 +538,10 @@ exports.getStockInventory = async (req, res) => {
       dateFilter = { date: { gte: start, lte: end } };
     }
 
+    const warehouseStocks = await prisma.warehouseStock.findMany({
+      where: { companyId }
+    });
+
     // Search filter for products
     let productWhere = { companyId, deletedAt: null };
     if (search && search.trim() !== '') {
@@ -473,7 +550,14 @@ exports.getStockInventory = async (req, res) => {
     
     // Filter products by warehouses if a filter is active
     if (targetWarehouseNames !== null) {
-      productWhere.warehouse = { in: targetWarehouseNames };
+      const matchingProductIds = warehouseStocks
+        .filter(ws => targetWarehouseIds.includes(ws.warehouseId))
+        .map(ws => ws.productId);
+
+      productWhere.OR = [
+        { warehouse: { in: targetWarehouseNames } },
+        { id: { in: matchingProductIds } }
+      ];
     }
 
     // Get all products for this company
@@ -599,13 +683,26 @@ exports.getStockInventory = async (req, res) => {
       const purchaseQty = (purchaseMap[product.id] || 0) - (purchaseReturnMap[product.id] || 0);
       const saleQty = (saleMap[product.id] || 0) - (saleReturnMap[product.id] || 0);
 
-      let openingStock = 0;
       let closingStock = product.stock;
+      if (targetWarehouseIds && targetWarehouseIds.length > 0) {
+        const whStocksForProduct = warehouseStocks.filter(ws => ws.productId === product.id && targetWarehouseIds.includes(ws.warehouseId));
+        if (whStocksForProduct.length > 0) {
+          closingStock = whStocksForProduct.reduce((sum, ws) => sum + ws.stock, 0);
+        } else if (product.warehouse && targetWarehouseNames && targetWarehouseNames.includes(product.warehouse)) {
+          closingStock = product.stock;
+        } else {
+          closingStock = 0;
+        }
+      }
+
+      let openingStock = 0;
 
       if (startDate && endDate) {
         // Opening Stock = Closing Stock - Purchases + Sales (reverse calculation)
-        openingStock = product.stock - purchaseQty + saleQty;
+        openingStock = closingStock - purchaseQty + saleQty;
         closingStock = openingStock + purchaseQty - saleQty;
+      } else {
+        openingStock = closingStock - purchaseQty + saleQty;
       }
 
       // Resolve branch, location and warehouse names
@@ -745,6 +842,43 @@ exports.stockCorrection = async (req, res) => {
     const prMap = {};
     purchaseReturnItems.forEach(i => prMap[i.productId] = (prMap[i.productId]||0) + (i.quantity||0));
 
+    // Rebuild warehouse stock map
+    const whStockMap = {};
+    const invoices = await prisma.invoice.findMany({
+      where: { companyId },
+      include: { items: true }
+    });
+
+    invoices.forEach(inv => {
+      const srcWhId = inv.warehouseId;
+      const destWhId = inv.toWarehouseId;
+
+      inv.items.forEach(item => {
+        const qty = (item.quantity || 0) + (item.freeQty || 0);
+
+        if (inv.type === 'PURCHASE' || inv.type === 'SALES_RETURN') {
+          if (srcWhId) {
+            const key = `${item.productId}_${srcWhId}`;
+            whStockMap[key] = (whStockMap[key] || 0) + qty;
+          }
+        } else if (inv.type === 'SALES' || inv.type === 'PURCHASE_RETURN') {
+          if (srcWhId) {
+            const key = `${item.productId}_${srcWhId}`;
+            whStockMap[key] = (whStockMap[key] || 0) - qty;
+          }
+        } else if (inv.type === 'STOCK_TRANSFER') {
+          if (srcWhId) {
+            const key = `${item.productId}_${srcWhId}`;
+            whStockMap[key] = (whStockMap[key] || 0) - qty;
+          }
+          if (destWhId) {
+            const key = `${item.productId}_${destWhId}`;
+            whStockMap[key] = (whStockMap[key] || 0) + qty;
+          }
+        }
+      });
+    });
+
     // Run updates in a transaction for safety
     await prisma.$transaction(async (tx) => {
       for (const product of products) {
@@ -753,11 +887,6 @@ exports.stockCorrection = async (req, res) => {
         const srQty = srMap[product.id] || 0;
         const prQty = prMap[product.id] || 0;
         
-        // Notice we don't have an explicit 'openingStock', but we assume transactions dictate the stock variation.
-        // Wait, if product.stock currently holds openingStock + variations, we can't just set it to variations.
-        // But since we don't have openingStock, we must set it to (Purchases - Sales + SalesReturns - PurchaseReturns)
-        // because we consider `getStockInventory` logic which assumes variations define stock.
-        
         const newStock = pQty - sQty + srQty - prQty;
         
         await tx.product.update({
@@ -765,9 +894,29 @@ exports.stockCorrection = async (req, res) => {
           data: { stock: newStock }
         });
       }
+
+      // Delete existing warehouse stock records
+      await tx.warehouseStock.deleteMany({ where: { companyId } });
+
+      // Create new warehouse stock records
+      for (const key of Object.keys(whStockMap)) {
+        const [prodIdStr, whIdStr] = key.split('_');
+        const productId = parseInt(prodIdStr, 10);
+        const warehouseId = parseInt(whIdStr, 10);
+        const stock = whStockMap[key];
+
+        await tx.warehouseStock.create({
+          data: {
+            productId,
+            warehouseId,
+            stock,
+            companyId
+          }
+        });
+      }
     });
 
-    res.status(200).json({ success: true, message: 'Stock corrected successfully for all products.' });
+    res.status(200).json({ success: true, message: 'Stock and warehouse stock corrected successfully for all products.' });
   } catch (error) {
     console.error('Stock Correction Error:', error);
     res.status(500).json({ success: false, message: 'Server error during stock correction' });

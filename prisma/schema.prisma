@@ -62,6 +62,7 @@ model Company {
   bankStatements BankStatement[]
   bankStatementRecords BankStatementRecord[]
   stockAdjustmentLogs StockAdjustmentLog[]
+  customerPayments CustomerPayment[]
 
  @@map("company")
 }
@@ -162,6 +163,7 @@ model Product {
   bomItems     BomItem[]
   attributeValues ProductAttributeValue[]
   stockAdjustmentLogs StockAdjustmentLog[]
+  warehouseStocks WarehouseStock[]
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
   deletedAt    DateTime?
@@ -201,12 +203,31 @@ model Customer {
   companyId Int
   company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   invoices  Invoice[]
+  payments  CustomerPayment[]
   followups Followup[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   deletedAt DateTime?
 
 @@map("customer")
+}
+
+model CustomerPayment {
+  id          Int      @id @default(autoincrement())
+  date        DateTime @default(now())
+  amount      Float    @default(0)
+  discount    Float    @default(0)
+  paymentType String   @default("IN")  // IN or OUT
+  paymentMode String   @default("Cash")
+  remark      String?
+  customerId  Int
+  customer    Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  companyId   Int
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+@@map("customerpayment")
 }
 
 model Followup {
@@ -282,6 +303,9 @@ model InvoiceItem {
   mfgDate   String?
   expDate   String?
   imei      String?
+  ram       String?
+  storage   String?
+  color     String?
   amount    Float    @default(0)
   gstRate   Float    @default(0)
   gstAmount Float    @default(0)
@@ -585,6 +609,7 @@ model Warehouse {
   locRef     Location? @relation("WarehouseLocation", fields: [locationId], references: [id], onDelete: SetNull)
   companyId  Int
   company    Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  warehouseStocks WarehouseStock[]
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
 
@@ -1048,4 +1073,19 @@ model StockAdjustmentLog {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
   @@map("stockadjustmentlog")
+}
+
+model WarehouseStock {
+  id          Int       @id @default(autoincrement())
+  productId   Int
+  product     Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  warehouseId Int
+  warehouse   Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+  stock       Int       @default(0)
+  companyId   Int
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([productId, warehouseId])
+  @@map("warehousestock")
 }

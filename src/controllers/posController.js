@@ -92,6 +92,28 @@ exports.checkout = async (req, res) => {
           where: { id: product.id },
           data: { stock: { decrement: parseInt(item.qty || item.quantity) } }
         });
+
+        // Decrement warehouse stock
+        let targetWhId = null;
+        const wh = await tx.warehouse.findFirst({
+          where: { companyId }
+        });
+        if (wh) targetWhId = wh.id;
+
+        if (targetWhId) {
+          await tx.warehouseStock.upsert({
+            where: { productId_warehouseId: { productId: product.id, warehouseId: targetWhId } },
+            create: {
+              productId: product.id,
+              warehouseId: targetWhId,
+              stock: -(parseInt(item.qty || item.quantity) || 0),
+              companyId
+            },
+            update: {
+              stock: { decrement: parseInt(item.qty || item.quantity) || 0 }
+            }
+          });
+        }
       }
 
       if (customerId) {

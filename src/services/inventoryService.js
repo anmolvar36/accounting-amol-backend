@@ -39,6 +39,13 @@ const updateStock = async (items, transactionType, warehouseId, toWarehouseId, t
         break;
     }
 
+    const productRecord = await tx.product.findUnique({
+      where: { id: item.productId },
+      select: { companyId: true }
+    });
+    if (!productRecord) continue;
+    const companyId = productRecord.companyId;
+
     // Apply standard stock change
     if (stockChange !== 0 && transactionType !== 'STOCK_TRANSFER') {
       const product = await tx.product.update({
@@ -49,18 +56,67 @@ const updateStock = async (items, transactionType, warehouseId, toWarehouseId, t
       // Low stock validation check
       if (stockChange < 0 && product.stock < 0) {
         // Here we could throw an error if "negativeStockLock" setting is true.
-        // For now, we throw an error to prevent negative stock.
-        // throw new Error(`Insufficient stock for Product ID ${product.id}`);
+      }
+
+      // Update warehouse stock
+      let targetWhId = warehouseId ? parseInt(warehouseId, 10) : null;
+      if (!targetWhId) {
+        const wh = await tx.warehouse.findFirst({
+          where: { companyId }
+        });
+        if (wh) targetWhId = wh.id;
+      }
+
+      if (targetWhId) {
+        await tx.warehouseStock.upsert({
+          where: { productId_warehouseId: { productId: item.productId, warehouseId: targetWhId } },
+          create: {
+            productId: item.productId,
+            warehouseId: targetWhId,
+            stock: stockChange,
+            companyId
+          },
+          update: {
+            stock: { increment: stockChange }
+          }
+        });
       }
     }
 
     // Handle Stock Transfer explicitly
     if (transactionType === 'STOCK_TRANSFER') {
-      // In a robust multi-warehouse setup, we would track stock per warehouse.
-      // Currently, the Product model has a single global 'stock' field. 
-      // A stock transfer doesn't change global stock, only location-specific stock.
-      // To fully implement this, we'd need a ProductWarehouse junction table.
-      // Since it's global for now, STOCK_TRANSFER doesn't change global stock total.
+      const srcWhId = warehouseId ? parseInt(warehouseId, 10) : null;
+      const destWhId = toWarehouseId ? parseInt(toWarehouseId, 10) : null;
+
+      if (srcWhId) {
+        await tx.warehouseStock.upsert({
+          where: { productId_warehouseId: { productId: item.productId, warehouseId: srcWhId } },
+          create: {
+            productId: item.productId,
+            warehouseId: srcWhId,
+            stock: -qty,
+            companyId
+          },
+          update: {
+            stock: { decrement: qty }
+          }
+        });
+      }
+
+      if (destWhId) {
+        await tx.warehouseStock.upsert({
+          where: { productId_warehouseId: { productId: item.productId, warehouseId: destWhId } },
+          create: {
+            productId: item.productId,
+            warehouseId: destWhId,
+            stock: qty,
+            companyId
+          },
+          update: {
+            stock: { increment: qty }
+          }
+        });
+      }
     }
   }
 };

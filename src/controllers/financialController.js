@@ -8,6 +8,7 @@ exports.getCollectionReport = async (req, res) => {
 
     // Define date filters
     let dateFilter = {};
+    let transactionDateFilter = {};
     if (startDate && endDate) {
       // Ensure the dates encompass the full day
       const start = new Date(startDate);
@@ -18,6 +19,13 @@ exports.getCollectionReport = async (req, res) => {
       
       dateFilter = {
         createdAt: {
+          gte: start,
+          lte: end
+        }
+      };
+      
+      transactionDateFilter = {
+        date: {
           gte: start,
           lte: end
         }
@@ -35,13 +43,20 @@ exports.getCollectionReport = async (req, res) => {
       }
     });
 
-    // We can also fetch actual payments from PaymentBook, but for now we calculate based on Invoices and Incomes/Expenses
-    const incomes = await prisma.income.findMany({
-      where: { companyId, ...dateFilter }
+    const paymentTransactions = await prisma.paymentBookTransaction.findMany({
+      where: { companyId, ...transactionDateFilter }
     });
 
-    const expenses = await prisma.expense.findMany({
-      where: { companyId, ...dateFilter }
+    const incomeTransactions = await prisma.incomeTransaction.findMany({
+      where: { companyId, ...transactionDateFilter }
+    });
+
+    const expenseTransactions = await prisma.expenseTransaction.findMany({
+      where: { companyId, ...transactionDateFilter }
+    });
+
+    const employeeTransactions = await prisma.employeeTransaction.findMany({
+      where: { companyId, ...transactionDateFilter }
     });
 
     // Aggregations
@@ -63,13 +78,9 @@ exports.getCollectionReport = async (req, res) => {
       }
     });
 
-    // In a full system, Credit Recovery comes from PaymentBook where a customer pays off a debt
-    // For this demonstration, we'll use a placeholder 0 or read from PaymentBook if it has amounts
-    let creditRecovery = 0; 
+    let creditRecovery = paymentTransactions.reduce((sum, txn) => sum + (txn.paymentIn || 0), 0);
     
-    // Other Income
-    // Assume Income model has an 'amount' field (Wait, the schema only has name/head. We will just use 0 for now)
-    let otherIncome = 0;
+    let otherIncome = incomeTransactions.reduce((sum, txn) => sum + (txn.paidAmount || 0), 0);
 
     // Money In = Cash Sales + Credit Recovery + Other Income
     const moneyIn = {
@@ -79,11 +90,10 @@ exports.getCollectionReport = async (req, res) => {
       total: cashSales + creditRecovery + otherIncome
     };
 
-    // Money Out = Purchases (Company Paid) + Expenses
-    // Assume Expense model doesn't have amount either in current schema, defaulting to 0
+    // Money Out = Purchases (Company Paid) + Expenses + Employee
     let companyPaid = purchases;
-    let employeePaid = 0;
-    let expensesPaid = 0;
+    let employeePaid = employeeTransactions.reduce((sum, txn) => sum + (txn.amount || 0), 0);
+    let expensesPaid = expenseTransactions.reduce((sum, txn) => sum + (txn.paidAmount || 0), 0);
 
     const moneyOut = {
       companyPaid: companyPaid,
